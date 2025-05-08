@@ -1,8 +1,8 @@
 name: Run tests & build images
 on:
   push:
-    #branches-ignore:
-    #  - main
+    branches-ignore:
+      - main
     paths-ignore:
       - '**.md'
 jobs:

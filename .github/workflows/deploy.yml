@@ -1,0 +1,30 @@
+name: Test, build & deploy
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+jobs:
+  build:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    environment: prod-gcp:appsec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - run: go test ./...
+      - uses: nais/docker-build-push@1fae4798c79f4af4c3cdbd3fe65e51f8f3ba2368 # ratchet:nais/docker-build-push@v0
+        id: docker-push
+        with:
+          team: appsec
+          push_image: true
+      - uses: nais/deploy/actions/deploy@655191e618af58744d594ab4226aeac78dc739ec # ratchet:nais/deploy/actions/deploy@v2
+        env:
+          RESOURCE: .nais/nais-github-watcher.yml
+          CLUSTER: prod-gcp
+          IMAGE: ${{ steps.docker-push.outputs.image }}
