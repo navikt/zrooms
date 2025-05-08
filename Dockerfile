@@ -10,4 +10,7 @@ RUN go build -a -installsuffix cgo -o /bin/zrooms ./cmd/zrooms
 FROM cgr.dev/chainguard/static:latest
 WORKDIR /app
 COPY --from=builder /bin/zrooms /app/zrooms
+# Copy templates and static files
+COPY --from=builder /src/internal/web/templates /app/internal/web/templates
+COPY --from=builder /src/internal/web/static /app/internal/web/static
 ENTRYPOINT ["/app/zrooms"]
