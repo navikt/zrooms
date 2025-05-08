@@ -24,6 +24,8 @@
                                 <span style="color: var(--success-color);">In Progress</span>
                             {{else if eq .Status "scheduled"}}
                                 <span style="color: var(--warning-color);">Scheduled</span>
+                            {{else if eq .Status "ended"}}
+                                <span style="color: var(--ended-color);">Ended</span>
                             {{else}}
                                 <span>{{.Status}}</span>
                             {{end}}
@@ -36,7 +38,7 @@
             </table>
         {{else}}
             <div class="no-meetings">
-                <p>No active meetings found</p>
+                <p>No meetings found</p>
             </div>
         {{end}}
     </div>

@@ -55,9 +55,6 @@ func (m *Meeting) AddParticipant(participant Participant) {
 func (m *Meeting) RemoveParticipant(participantID string) bool {
 	for i, p := range m.Participants {
 		if p.ID == participantID {
-			// Remove participant by swapping with the last element and truncating
-			p.LeaveTime = time.Now()
-
 			// If the participant is not the last one in the slice
 			if i < len(m.Participants)-1 {
 				m.Participants[i] = m.Participants[len(m.Participants)-1]

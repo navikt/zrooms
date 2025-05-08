@@ -13,6 +13,7 @@ type Repository interface {
 	SaveMeeting(ctx context.Context, meeting *models.Meeting) error
 	GetMeeting(ctx context.Context, id string) (*models.Meeting, error)
 	ListMeetings(ctx context.Context) ([]*models.Meeting, error)
+	ListAllMeetings(ctx context.Context) ([]*models.Meeting, error)
 	DeleteMeeting(ctx context.Context, id string) error
 
 	// Participant operations - only stores IDs, not PII

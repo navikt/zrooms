@@ -99,23 +99,47 @@ func (r *Repository) GetMeeting(ctx context.Context, id string) (*models.Meeting
 }
 
 // ListMeetings returns all active meetings with minimal information
+// (does not include ended meetings for backward compatibility)
 func (r *Repository) ListMeetings(ctx context.Context) ([]*models.Meeting, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	meetings := make([]*models.Meeting, 0, len(r.meetingStates))
 	for _, state := range r.meetingStates {
-		// Only include active meetings (not ended)
+		// Only include active meetings (not ended) for backward compatibility
 		if state.Status != models.MeetingStatusEnded {
 			meeting := &models.Meeting{
 				ID:           state.ID,
 				Topic:        state.Topic,
 				Status:       state.Status,
 				StartTime:    state.StartTime,
+				EndTime:      state.EndTime,
 				Participants: []models.Participant{}, // Empty slice, we don't store participant details
 			}
 			meetings = append(meetings, meeting)
 		}
+	}
+
+	return meetings, nil
+}
+
+// ListAllMeetings returns all meetings with minimal information including ended meetings
+func (r *Repository) ListAllMeetings(ctx context.Context) ([]*models.Meeting, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	meetings := make([]*models.Meeting, 0, len(r.meetingStates))
+	for _, state := range r.meetingStates {
+		// Include all meetings, including ended ones
+		meeting := &models.Meeting{
+			ID:           state.ID,
+			Topic:        state.Topic,
+			Status:       state.Status,
+			StartTime:    state.StartTime,
+			EndTime:      state.EndTime,
+			Participants: []models.Participant{}, // Empty slice, we don't store participant details
+		}
+		meetings = append(meetings, meeting)
 	}
 
 	return meetings, nil

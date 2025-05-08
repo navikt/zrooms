@@ -62,8 +62,8 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get meeting data
-	meetings, err := h.meetingService.GetMeetingStatusData(r.Context())
+	// Get meeting data, including ended meetings
+	meetings, err := h.meetingService.GetMeetingStatusData(r.Context(), true)
 	if err != nil {
 		log.Printf("Error getting meeting data: %v", err)
 		http.Error(w, "Failed to get meeting data", http.StatusInternalServerError)

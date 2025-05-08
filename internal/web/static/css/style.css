@@ -11,6 +11,7 @@
     --border-color: #ddd;
     --success-color: #06893a;
     --warning-color: #ff9800;
+    --ended-color: #888888;
 }
 
 * {

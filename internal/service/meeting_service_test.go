@@ -51,8 +51,8 @@ func TestMeetingService_GetMeetingStatusData(t *testing.T) {
 	}
 	require.NoError(t, repo.SaveMeeting(ctx, meeting3))
 
-	// Execute the method being tested
-	result, err := meetingService.GetMeetingStatusData(ctx)
+	// Execute the method being tested, pass false to exclude ended meetings
+	result, err := meetingService.GetMeetingStatusData(ctx, false)
 	require.NoError(t, err)
 
 	// Should return 2 meetings (the active and scheduled ones)
@@ -90,4 +90,26 @@ func TestMeetingService_GetMeetingStatusData(t *testing.T) {
 	for _, data := range result {
 		assert.NotEqual(t, meeting3.ID, data.Meeting.ID, "Ended meeting should not be in the results")
 	}
+
+	// Now test includeEnded=true to include ended meetings
+	resultWithEnded, err := meetingService.GetMeetingStatusData(ctx, true)
+	require.NoError(t, err)
+
+	// Should return 3 meetings (all meetings including the ended one)
+	assert.Len(t, resultWithEnded, 3, "Should return 3 meetings (including the ended one)")
+
+	// Find ended meeting data
+	var endedMeetingData *service.MeetingStatusData
+	for i := range resultWithEnded {
+		if resultWithEnded[i].Meeting.ID == meeting3.ID {
+			endedMeetingData = &resultWithEnded[i]
+			break
+		}
+	}
+
+	// Verify ended meeting data
+	require.NotNil(t, endedMeetingData, "Ended meeting should be in the results when includeEnded=true")
+	assert.Equal(t, meeting3.ID, endedMeetingData.Meeting.ID)
+	assert.Equal(t, "ended", endedMeetingData.Status)
+	assert.Equal(t, 0, endedMeetingData.ParticipantCount)
 }

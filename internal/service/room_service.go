@@ -29,9 +29,19 @@ type MeetingStatusData struct {
 }
 
 // GetMeetingStatusData returns meeting data formatted for the web UI
-func (s *MeetingService) GetMeetingStatusData(ctx context.Context) ([]MeetingStatusData, error) {
-	// Get all meetings directly
-	meetings, err := s.repo.ListMeetings(ctx)
+// If includeEnded is true, ended meetings will be included with 0 participants
+func (s *MeetingService) GetMeetingStatusData(ctx context.Context, includeEnded bool) ([]MeetingStatusData, error) {
+	var meetings []*models.Meeting
+	var err error
+
+	if includeEnded {
+		// Get all meetings including ended ones
+		meetings, err = s.repo.ListAllMeetings(ctx)
+	} else {
+		// Get only active meetings (not ended) for backward compatibility
+		meetings, err = s.repo.ListMeetings(ctx)
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -40,21 +50,23 @@ func (s *MeetingService) GetMeetingStatusData(ctx context.Context) ([]MeetingSta
 
 	// Process each meeting
 	for _, meeting := range meetings {
-		// Skip ended meetings
-		if meeting.Status == models.MeetingStatusEnded {
-			continue
-		}
-
 		// Get participant count for this meeting
 		participantCount, err := s.repo.CountParticipantsInMeeting(ctx, meeting.ID)
 		if err != nil {
 			participantCount = 0 // Default to 0 if there's an error
 		}
 
+		// For ended meetings, always set participant count to 0
+		if meeting.Status == models.MeetingStatusEnded {
+			participantCount = 0
+		}
+
 		// Determine meeting status string
 		statusStr := "scheduled"
 		if meeting.Status == models.MeetingStatusStarted {
 			statusStr = "in_progress"
+		} else if meeting.Status == models.MeetingStatusEnded {
+			statusStr = "ended"
 		}
 
 		// Add to result
