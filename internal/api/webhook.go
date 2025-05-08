@@ -83,6 +83,45 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	// Handle Zoom URL validation challenge response
+	if event.Event == "endpoint.url_validation" {
+		log.Printf("Received Zoom URL validation challenge")
+
+		// Parse the payload to extract the plainToken
+		var validationPayload struct {
+			PlainToken string `json:"plainToken"`
+		}
+
+		// Unmarshal the raw payload into our validation struct
+		if err := json.Unmarshal(event.Payload, &validationPayload); err != nil {
+			log.Printf("Error parsing validation payload: %v", err)
+			http.Error(w, "Invalid validation request", http.StatusBadRequest)
+			return
+		}
+
+		if validationPayload.PlainToken == "" {
+			log.Printf("Error: Missing plainToken in validation request")
+			http.Error(w, "Invalid validation request", http.StatusBadRequest)
+			return
+		}
+
+		// Generate the hash response using HMAC SHA-256
+		hash := hmac.New(sha256.New, []byte(h.secretToken))
+		hash.Write([]byte(validationPayload.PlainToken))
+		encryptedToken := hex.EncodeToString(hash.Sum(nil))
+
+		// Return the validation response as required by Zoom
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"plainToken":     validationPayload.PlainToken,
+			"encryptedToken": encryptedToken,
+		})
+
+		log.Printf("Successfully responded to Zoom URL validation challenge")
+		return
+	}
+
 	// Process the event based on its type
 	switch event.Event {
 	case "meeting.started":
@@ -105,8 +144,9 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // verifyZoomWebhookSignature validates that the request is actually from Zoom
-// using the approach specified in Zoom's webhook documentation:
-// https://developers.zoom.us/docs/api/webhooks/
+// using the approach specified in Zoom's webhook documentation.
+// It verifies the x-zm-signature header against an HMAC-SHA256 hash of the request body
+// using the configured webhook secret token.
 func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 	// Get the signature from the header
 	signatureHeader := r.Header.Get("x-zm-signature")
@@ -133,7 +173,7 @@ func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 			log.Printf("Error reading request body for signature verification: %v", err)
 			return false
 		}
-		
+
 		// Restore the body so it can be read again
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
 	}
@@ -142,32 +182,27 @@ func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 	mac := hmac.New(sha256.New, []byte(h.secretToken))
 	mac.Write(body)
 	computedHash := mac.Sum(nil)
-	
-	// Try multiple comparison approaches since Zoom's documentation is somewhat ambiguous
-	
-	// 1. Try direct comparison with provided signature (if it's hex encoded)
-	if hmac.Equal([]byte(hex.EncodeToString(computedHash)), []byte(receivedSignature)) {
+
+	// Try hex encoding (primary method Zoom uses)
+	computedHex := hex.EncodeToString(computedHash)
+	if hmac.Equal([]byte(computedHex), []byte(receivedSignature)) {
 		return true
 	}
-	
-	// 2. Try comparing with base64 encoding (the way described in Zoom docs)
+
+	// Fallback: try base64 encoding (in case Zoom changes their implementation)
 	computedBase64 := base64.StdEncoding.EncodeToString(computedHash)
 	if hmac.Equal([]byte(computedBase64), []byte(receivedSignature)) {
 		return true
 	}
-	
-	// 3. Try comparing with the decoded signature if it's base64
+
+	// Fallback: try comparing with decoded base64 (if signature itself is base64-encoded)
 	decodedSignature, err := base64.StdEncoding.DecodeString(receivedSignature)
 	if err == nil && hmac.Equal(computedHash, decodedSignature) {
 		return true
 	}
-	
-	// Log failure details (only in debug/development)
-	log.Printf("Signature validation failed")
-	log.Printf("Received: %s", receivedSignature)
-	log.Printf("Expected (hex): %s", hex.EncodeToString(computedHash))
-	log.Printf("Expected (base64): %s", base64.StdEncoding.EncodeToString(computedHash))
-	
+
+	// All verification methods failed
+	log.Printf("Webhook signature validation failed")
 	return false
 }
 

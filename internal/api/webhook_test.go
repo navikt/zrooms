@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -323,4 +324,55 @@ func TestWebhookHandler(t *testing.T) {
 			tt.validateFunc(t, repo)
 		})
 	}
+}
+
+func TestWebhookURLValidation(t *testing.T) {
+	// Initialize repository
+	repo := memory.NewRepository()
+
+	// Sample validation request from Zoom documentation
+	validationPayload := `{
+	  "payload": {
+	    "plainToken": "qgg8vlvZRS6UYooatFL8Aw"
+	  },
+	  "event_ts": 1654503849680,
+	  "event": "endpoint.url_validation"
+	}`
+
+	// Set up the webhook secret token for testing
+	secretToken := "webhook_secret_token"
+
+	// Create a test request
+	req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(validationPayload))
+	req.Header.Set("Content-Type", "application/json; charset=utf-8")
+	req.Header.Set("x-zm-request-timestamp", "1739923528")
+	req.Header.Set("x-zm-signature", "v0=WF9aT09NX1NJR05BVFVSRQ") // We're not validating the signature in this test
+
+	// Create a response recorder
+	rr := httptest.NewRecorder()
+
+	// Create the handler with the test secret token
+	handler := api.NewWebhookHandlerWithSecret(repo, secretToken)
+
+	// Process the request
+	handler.ServeHTTP(rr, req)
+
+	// Check the response
+	assert.Equal(t, http.StatusOK, rr.Code, "Should return 200 OK for URL validation challenge")
+
+	// Verify the response contains the expected validation fields
+	var response map[string]string
+	err := json.Unmarshal(rr.Body.Bytes(), &response)
+	assert.NoError(t, err, "Should return valid JSON")
+
+	// Check that the response contains plainToken and encryptedToken
+	assert.Contains(t, response, "plainToken", "Response should contain plainToken")
+	assert.Contains(t, response, "encryptedToken", "Response should contain encryptedToken")
+	assert.Equal(t, "qgg8vlvZRS6UYooatFL8Aw", response["plainToken"], "plainToken should match the request")
+
+	// Validate that the encryptedToken is correctly calculated
+	h := hmac.New(sha256.New, []byte(secretToken))
+	h.Write([]byte("qgg8vlvZRS6UYooatFL8Aw"))
+	expectedToken := hex.EncodeToString(h.Sum(nil))
+	assert.Equal(t, expectedToken, response["encryptedToken"], "encryptedToken should be correctly calculated")
 }

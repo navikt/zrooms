@@ -1,18 +1,19 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 )
 
 // WebhookEvent represents the base structure of a Zoom webhook event
 type WebhookEvent struct {
-	Event   string       `json:"event"`
-	Payload EventPayload `json:"payload"`
-	EventTS int64        `json:"event_ts"` // Unix timestamp in milliseconds
+	Event   string          `json:"event"`
+	Payload json.RawMessage `json:"payload"`  // Use RawMessage for flexibility with different payload types
+	EventTS int64           `json:"event_ts"` // Unix timestamp in milliseconds
 }
 
-// EventPayload contains the common payload structure for Zoom webhook events
-type EventPayload struct {
+// StandardEventPayload contains the common payload structure for regular Zoom webhook events
+type StandardEventPayload struct {
 	AccountID string      `json:"account_id"`
 	Object    EventObject `json:"object"`
 }
@@ -42,14 +43,19 @@ type ParticipantEvent struct {
 
 // ProcessMeetingCreated handles a meeting.created event
 func (e *WebhookEvent) ProcessMeetingCreated() *Meeting {
+	var payload StandardEventPayload
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		return nil
+	}
+
 	return &Meeting{
-		ID:        e.Payload.Object.ID,
-		Topic:     e.Payload.Object.Topic,
-		StartTime: e.Payload.Object.StartTime,
-		Duration:  e.Payload.Object.Duration,
+		ID:        payload.Object.ID,
+		Topic:     payload.Object.Topic,
+		StartTime: payload.Object.StartTime,
+		Duration:  payload.Object.Duration,
 		Status:    MeetingStatusCreated,
 		Host: Participant{
-			ID: e.Payload.Object.HostID,
+			ID: payload.Object.HostID,
 		},
 		Participants: []Participant{},
 	}
@@ -57,14 +63,19 @@ func (e *WebhookEvent) ProcessMeetingCreated() *Meeting {
 
 // ProcessMeetingStarted handles a meeting.started event
 func (e *WebhookEvent) ProcessMeetingStarted() *Meeting {
+	var payload StandardEventPayload
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		return nil
+	}
+
 	return &Meeting{
-		ID:        e.Payload.Object.ID,
-		Topic:     e.Payload.Object.Topic,
+		ID:        payload.Object.ID,
+		Topic:     payload.Object.Topic,
 		StartTime: time.Now(),
-		Duration:  e.Payload.Object.Duration,
+		Duration:  payload.Object.Duration,
 		Status:    MeetingStatusStarted,
 		Host: Participant{
-			ID: e.Payload.Object.HostID,
+			ID: payload.Object.HostID,
 		},
 		Participants: []Participant{},
 	}
@@ -72,41 +83,56 @@ func (e *WebhookEvent) ProcessMeetingStarted() *Meeting {
 
 // ProcessMeetingEnded handles a meeting.ended event
 func (e *WebhookEvent) ProcessMeetingEnded() *Meeting {
+	var payload StandardEventPayload
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		return nil
+	}
+
 	return &Meeting{
-		ID:      e.Payload.Object.ID,
-		Topic:   e.Payload.Object.Topic,
+		ID:      payload.Object.ID,
+		Topic:   payload.Object.Topic,
 		EndTime: time.Now(),
 		Status:  MeetingStatusEnded,
 		Host: Participant{
-			ID: e.Payload.Object.HostID,
+			ID: payload.Object.HostID,
 		},
 	}
 }
 
 // ProcessParticipantJoined handles a meeting.participant_joined event
 func (e *WebhookEvent) ProcessParticipantJoined() *Participant {
-	if e.Payload.Object.Participant == nil {
+	var payload StandardEventPayload
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		return nil
+	}
+
+	if payload.Object.Participant == nil {
 		return nil
 	}
 
 	return &Participant{
-		ID:       e.Payload.Object.Participant.UserID,
-		Name:     e.Payload.Object.Participant.Name,
-		Email:    e.Payload.Object.Participant.Email,
+		ID:       payload.Object.Participant.UserID,
+		Name:     payload.Object.Participant.Name,
+		Email:    payload.Object.Participant.Email,
 		JoinTime: time.Now(),
 	}
 }
 
 // ProcessParticipantLeft handles a meeting.participant_left event
 func (e *WebhookEvent) ProcessParticipantLeft() *Participant {
-	if e.Payload.Object.Participant == nil {
+	var payload StandardEventPayload
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		return nil
+	}
+
+	if payload.Object.Participant == nil {
 		return nil
 	}
 
 	return &Participant{
-		ID:        e.Payload.Object.Participant.UserID,
-		Name:      e.Payload.Object.Participant.Name,
-		Email:     e.Payload.Object.Participant.Email,
+		ID:        payload.Object.Participant.UserID,
+		Name:      payload.Object.Participant.Name,
+		Email:     payload.Object.Participant.Email,
 		LeaveTime: time.Now(),
 	}
 }
