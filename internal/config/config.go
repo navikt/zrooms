@@ -7,19 +7,21 @@ import (
 
 // ZoomConfig holds all Zoom-related configuration
 type ZoomConfig struct {
-	ClientID     string
-	ClientSecret string
-	RedirectURI  string
-	WebhookURL   string
+	ClientID           string
+	ClientSecret       string
+	RedirectURI        string
+	WebhookURL         string
+	WebhookSecretToken string
 }
 
 // GetZoomConfig loads Zoom configuration from environment variables
 func GetZoomConfig() ZoomConfig {
 	return ZoomConfig{
-		ClientID:     getEnv("ZOOM_CLIENT_ID", ""),
-		ClientSecret: getEnv("ZOOM_CLIENT_SECRET", ""),
-		RedirectURI:  getEnv("ZOOM_REDIRECT_URI", ""),
-		WebhookURL:   getEnv("ZOOM_WEBHOOK_URL", ""),
+		ClientID:           getEnv("ZOOM_CLIENT_ID", ""),
+		ClientSecret:       getEnv("ZOOM_CLIENT_SECRET", ""),
+		RedirectURI:        getEnv("ZOOM_REDIRECT_URI", ""),
+		WebhookURL:         getEnv("ZOOM_WEBHOOK_URL", ""),
+		WebhookSecretToken: getEnv("ZOOM_WEBHOOK_SECRET_TOKEN", ""),
 	}
 }
 

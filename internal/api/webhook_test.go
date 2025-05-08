@@ -3,6 +3,9 @@ package api_test
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -13,6 +16,100 @@ import (
 	"github.com/navikt/zrooms/internal/repository/memory"
 	"github.com/stretchr/testify/assert"
 )
+
+// TestWebhookSignatureValidation tests the webhook signature validation functionality
+func TestWebhookSignatureValidation(t *testing.T) {
+	// Initialize repository
+	repo := memory.NewRepository()
+
+	// Sample test cases for webhook signature validation
+	tests := []struct {
+		name           string
+		webhookPayload string
+		secretToken    string
+		setupSignature func(req *http.Request, payload string, secretToken string)
+		expectSuccess  bool
+	}{
+		{
+			name:           "Valid Signature",
+			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
+			secretToken:    "test_secret_token",
+			setupSignature: func(req *http.Request, payload string, secretToken string) {
+				// Create a valid signature
+				h256 := hmac.New(sha256.New, []byte(secretToken))
+				h256.Write([]byte(payload))
+				signature := hex.EncodeToString(h256.Sum(nil))
+				req.Header.Set("x-zm-signature", "v0="+signature)
+			},
+			expectSuccess: true,
+		},
+		{
+			name:           "Invalid Signature",
+			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
+			secretToken:    "test_secret_token",
+			setupSignature: func(req *http.Request, payload string, secretToken string) {
+				// Create an invalid signature
+				req.Header.Set("x-zm-signature", "v0=invalidsignature")
+			},
+			expectSuccess: false,
+		},
+		{
+			name:           "Missing Signature Header",
+			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
+			secretToken:    "test_secret_token",
+			setupSignature: func(req *http.Request, payload string, secretToken string) {
+				// Don't set any signature header
+			},
+			expectSuccess: false,
+		},
+		{
+			name:           "Invalid Signature Format",
+			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
+			secretToken:    "test_secret_token",
+			setupSignature: func(req *http.Request, payload string, secretToken string) {
+				// Wrong format (missing v0=)
+				h256 := hmac.New(sha256.New, []byte(secretToken))
+				h256.Write([]byte(payload))
+				signature := hex.EncodeToString(h256.Sum(nil))
+				req.Header.Set("x-zm-signature", signature)
+			},
+			expectSuccess: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a test WebhookHandler with the test secret token
+			handler := &api.WebhookHandler{}
+
+			// Need to use reflection to set the private secretToken field for testing
+			// This is hacky for testing purposes - in real code we'd refactor to make this easier to test
+			// using dependency injection or interfaces
+
+			// Use exported method that accepts a repository and creates a handler with the token
+			handler = api.NewWebhookHandlerWithSecret(repo, tt.secretToken)
+
+			// Create a request with the webhook payload
+			req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(tt.webhookPayload))
+			req.Header.Set("Content-Type", "application/json")
+
+			// Setup signature according to test case
+			tt.setupSignature(req, tt.webhookPayload, tt.secretToken)
+
+			// Create a response recorder
+			rr := httptest.NewRecorder()
+
+			// Process the request
+			handler.ServeHTTP(rr, req)
+
+			if tt.expectSuccess {
+				assert.Equal(t, http.StatusOK, rr.Code, "Expected successful validation")
+			} else {
+				assert.Equal(t, http.StatusUnauthorized, rr.Code, "Expected unauthorized status for invalid signature")
+			}
+		})
+	}
+}
 
 func TestWebhookHandler(t *testing.T) {
 	// Initialize repository

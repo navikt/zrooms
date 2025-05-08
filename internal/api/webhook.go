@@ -2,26 +2,44 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
+	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
 )
 
 // WebhookHandler processes webhook events from Zoom
 type WebhookHandler struct {
-	repo repository.Repository
+	repo        repository.Repository
+	secretToken string
 }
 
 // NewWebhookHandler creates a new webhook handler with the given repository
 func NewWebhookHandler(repo repository.Repository) *WebhookHandler {
+	zoomConfig := config.GetZoomConfig()
 	return &WebhookHandler{
-		repo: repo,
+		repo:        repo,
+		secretToken: zoomConfig.WebhookSecretToken,
+	}
+}
+
+// NewWebhookHandlerWithSecret creates a webhook handler with the given repository and secret token
+// This method is primarily used for testing webhook signature validation
+func NewWebhookHandlerWithSecret(repo repository.Repository, secretToken string) *WebhookHandler {
+	return &WebhookHandler{
+		repo:        repo,
+		secretToken: secretToken,
 	}
 }
 
@@ -31,6 +49,17 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
+	}
+
+	// Verify webhook signature if secret token is configured
+	if h.secretToken != "" {
+		if !h.verifyZoomWebhookSignature(r) {
+			log.Printf("Invalid webhook signature")
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+	} else {
+		log.Printf("Warning: Webhook verification disabled - ZOOM_WEBHOOK_SECRET_TOKEN not set")
 	}
 
 	// Limit request body size to prevent abuse
@@ -73,6 +102,61 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprintf(w, `{"success": true}`)
+}
+
+// verifyZoomWebhookSignature validates that the request is actually from Zoom
+// by checking the x-zm-signature header against the message's HMAC using our secret token
+func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
+	// Get the signature from the header
+	signatureHeader := r.Header.Get("x-zm-signature")
+	if signatureHeader == "" {
+		log.Printf("Missing x-zm-signature header")
+		return false
+	}
+
+	// Parse the signature format (should be v0=HASH)
+	parts := strings.SplitN(signatureHeader, "=", 2)
+	if len(parts) != 2 || parts[0] != "v0" {
+		log.Printf("Invalid signature format: %s", signatureHeader)
+		return false
+	}
+	receivedSignature := parts[1]
+
+	// Read the request body for verification
+	var body []byte
+	var err error
+	if r.Body != nil {
+		// Create a new buffer to store the body content
+		body, err = io.ReadAll(r.Body)
+		if err != nil {
+			log.Printf("Error reading request body for signature verification: %v", err)
+			return false
+		}
+
+		// Restore the body so it can be read again
+		r.Body = io.NopCloser(strings.NewReader(string(body)))
+	}
+
+	// Calculate the expected signature
+	h256 := hmac.New(sha256.New, []byte(h.secretToken))
+	h256.Write(body)
+	expectedSignature := hex.EncodeToString(h256.Sum(nil))
+
+	// Direct comparison with hex encoded signature
+	if hmac.Equal([]byte(expectedSignature), []byte(receivedSignature)) {
+		return true
+	}
+
+	// Try base64 decode in case Zoom sent a base64 encoded signature
+	decodedSignature, err := base64.StdEncoding.DecodeString(receivedSignature)
+	if err == nil {
+		// Compare with the raw binary hash
+		return hmac.Equal(h256.Sum(nil), decodedSignature)
+	}
+
+	// No match found
+	log.Printf("Signature validation failed")
+	return false
 }
 
 // handleMeetingStarted processes a meeting.started event
