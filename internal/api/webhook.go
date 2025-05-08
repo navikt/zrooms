@@ -113,10 +113,20 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// Return the validation response as required by Zoom
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
+
+		// Use json.Marshal instead of json.NewEncoder to avoid unwanted newlines
+		responseData, err := json.Marshal(map[string]string{
 			"plainToken":     validationPayload.PlainToken,
 			"encryptedToken": encryptedToken,
 		})
+		if err != nil {
+			log.Printf("Error marshaling validation response: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		// Write the response directly
+		w.Write(responseData)
 
 		log.Printf("Successfully responded to Zoom URL validation challenge")
 		return
@@ -216,9 +226,16 @@ func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models
 
 	log.Printf("Meeting started: ID=%s, Topic=%s", meeting.ID, meeting.Topic)
 
+	// Parse the standard event payload to access object properties
+	var payload models.StandardEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("Error parsing payload for meeting started event: %v", err)
+		return
+	}
+
 	// Explicitly ensure the topic is set (fix for failing test)
-	if meeting.Topic == "" && event.Payload.Object.Topic != "" {
-		meeting.Topic = event.Payload.Object.Topic
+	if meeting.Topic == "" && payload.Object.Topic != "" {
+		meeting.Topic = payload.Object.Topic
 	}
 
 	// Assign to a room - in a real implementation, this would be more sophisticated
@@ -246,6 +263,13 @@ func (h *WebhookHandler) handleMeetingEnded(ctx context.Context, event *models.W
 		return
 	}
 
+	// Parse the standard event payload to access object properties
+	var payload models.StandardEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("Error parsing payload for meeting ended event: %v", err)
+		return
+	}
+
 	// Get existing meeting to preserve room and other details
 	existingMeeting, err := h.repo.GetMeeting(ctx, meeting.ID)
 	if err == nil {
@@ -253,7 +277,7 @@ func (h *WebhookHandler) handleMeetingEnded(ctx context.Context, event *models.W
 		meeting.Room = existingMeeting.Room
 		meeting.Topic = existingMeeting.Topic
 		if meeting.Topic == "" {
-			meeting.Topic = event.Payload.Object.Topic
+			meeting.Topic = payload.Object.Topic
 		}
 	}
 
@@ -271,7 +295,14 @@ func (h *WebhookHandler) handleParticipantJoined(ctx context.Context, event *mod
 		return
 	}
 
-	meetingID := event.Payload.Object.ID
+	// Parse the standard event payload to access object properties
+	var payload models.StandardEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("Error parsing payload for participant joined event: %v", err)
+		return
+	}
+
+	meetingID := payload.Object.ID
 	participantID := participant.ID
 
 	// Only store the participant ID to avoid storing PII
@@ -289,7 +320,14 @@ func (h *WebhookHandler) handleParticipantLeft(ctx context.Context, event *model
 		return
 	}
 
-	meetingID := event.Payload.Object.ID
+	// Parse the standard event payload to access object properties
+	var payload models.StandardEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("Error parsing payload for participant left event: %v", err)
+		return
+	}
+
+	meetingID := payload.Object.ID
 	participantID := participant.ID
 
 	log.Printf("Participant left: MeetingID=%s, ParticipantID=%s", meetingID, participantID)

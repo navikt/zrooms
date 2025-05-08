@@ -346,7 +346,12 @@ func TestWebhookURLValidation(t *testing.T) {
 	req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(validationPayload))
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	req.Header.Set("x-zm-request-timestamp", "1739923528")
-	req.Header.Set("x-zm-signature", "v0=WF9aT09NX1NJR05BVFVSRQ") // We're not validating the signature in this test
+
+	// Create a valid signature for the test payload
+	mac := hmac.New(sha256.New, []byte(secretToken))
+	mac.Write([]byte(validationPayload))
+	signature := hex.EncodeToString(mac.Sum(nil))
+	req.Header.Set("x-zm-signature", "v0="+signature)
 
 	// Create a response recorder
 	rr := httptest.NewRecorder()
