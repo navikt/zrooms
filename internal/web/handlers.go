@@ -13,13 +13,13 @@ import (
 
 // Handler manages web UI requests
 type Handler struct {
-	roomService *service.RoomService
-	templates   *template.Template
-	refreshRate int // in seconds
+	meetingService *service.MeetingService
+	templates      *template.Template
+	refreshRate    int // in seconds
 }
 
 // NewHandler creates a new web UI handler
-func NewHandler(roomService *service.RoomService, templatesDir string, refreshRate int) (*Handler, error) {
+func NewHandler(meetingService *service.MeetingService, templatesDir string, refreshRate int) (*Handler, error) {
 	// Parse templates
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"formatTime": formatTime,
@@ -30,9 +30,9 @@ func NewHandler(roomService *service.RoomService, templatesDir string, refreshRa
 	}
 
 	return &Handler{
-		roomService: roomService,
-		templates:   tmpl,
-		refreshRate: refreshRate,
+		meetingService: meetingService,
+		templates:      tmpl,
+		refreshRate:    refreshRate,
 	}, nil
 }
 
@@ -54,7 +54,7 @@ func (h *Handler) SetupRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", h.handleIndex)
 }
 
-// handleIndex renders the main page with room and meeting status
+// handleIndex renders the main page with meeting status
 func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	// Only handle the root path
 	if r.URL.Path != "/" {
@@ -63,7 +63,7 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get meeting data
-	meetings, err := h.roomService.GetMeetingStatusData(r.Context())
+	meetings, err := h.meetingService.GetMeetingStatusData(r.Context())
 	if err != nil {
 		log.Printf("Error getting meeting data: %v", err)
 		http.Error(w, "Failed to get meeting data", http.StatusInternalServerError)

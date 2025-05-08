@@ -38,7 +38,6 @@ type Meeting struct {
 	Status       MeetingStatus `json:"status"`
 	Host         Participant   `json:"host"`
 	Participants []Participant `json:"participants"`
-	Room         string        `json:"room"`
 }
 
 // AddParticipant adds a participant to the meeting

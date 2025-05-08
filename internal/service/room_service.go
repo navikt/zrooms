@@ -8,26 +8,20 @@ import (
 	"github.com/navikt/zrooms/internal/repository"
 )
 
-// RoomService provides business logic for working with rooms and meetings
-type RoomService struct {
+// MeetingService provides business logic for working with meetings
+type MeetingService struct {
 	repo repository.Repository
 }
 
-// NewRoomService creates a new RoomService with the given repository
-func NewRoomService(repo repository.Repository) *RoomService {
-	return &RoomService{
+// NewMeetingService creates a new MeetingService with the given repository
+func NewMeetingService(repo repository.Repository) *MeetingService {
+	return &MeetingService{
 		repo: repo,
 	}
 }
 
-// GetAllRoomStatuses returns all room statuses with their current meeting information
-func (s *RoomService) GetAllRoomStatuses(ctx context.Context) ([]*models.RoomStatus, error) {
-	return s.repo.ListRoomStatuses(ctx)
-}
-
 // MeetingStatusData represents data for the web UI
 type MeetingStatusData struct {
-	Room             *models.Room
 	Meeting          *models.Meeting
 	Status           string
 	ParticipantCount int
@@ -35,49 +29,40 @@ type MeetingStatusData struct {
 }
 
 // GetMeetingStatusData returns meeting data formatted for the web UI
-func (s *RoomService) GetMeetingStatusData(ctx context.Context) ([]MeetingStatusData, error) {
-	// Get room statuses
-	roomStatuses, err := s.repo.ListRoomStatuses(ctx)
+func (s *MeetingService) GetMeetingStatusData(ctx context.Context) ([]MeetingStatusData, error) {
+	// Get all meetings directly
+	meetings, err := s.repo.ListMeetings(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	var result []MeetingStatusData
 
-	// Process each room status
-	for _, status := range roomStatuses {
-		if status.CurrentMeetingID == "" {
-			// Room is available, no meeting in progress
+	// Process each meeting
+	for _, meeting := range meetings {
+		// Skip ended meetings
+		if meeting.Status == models.MeetingStatusEnded {
 			continue
 		}
 
-		// Get meeting details
-		meeting, err := s.repo.GetMeeting(ctx, status.CurrentMeetingID)
+		// Get participant count for this meeting
+		participantCount, err := s.repo.CountParticipantsInMeeting(ctx, meeting.ID)
 		if err != nil {
-			continue // Skip if meeting not found
-		}
-
-		// Get room details
-		room, err := s.repo.GetRoom(ctx, status.RoomID)
-		if err != nil {
-			continue // Skip if room not found
+			participantCount = 0 // Default to 0 if there's an error
 		}
 
 		// Determine meeting status string
 		statusStr := "scheduled"
 		if meeting.Status == models.MeetingStatusStarted {
 			statusStr = "in_progress"
-		} else if meeting.Status == models.MeetingStatusEnded {
-			statusStr = "ended"
 		}
 
 		// Add to result
 		result = append(result, MeetingStatusData{
-			Room:             room,
 			Meeting:          meeting,
 			Status:           statusStr,
-			ParticipantCount: status.ParticipantCount,
-			StartedAt:        status.MeetingStartTime,
+			ParticipantCount: participantCount,
+			StartedAt:        meeting.StartTime,
 		})
 	}
 

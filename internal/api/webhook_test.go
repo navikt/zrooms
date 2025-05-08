@@ -114,21 +114,12 @@ func TestWebhookHandler(t *testing.T) {
 	repo := memory.NewRepository()
 	ctx := context.Background()
 
-	// Pre-populate with some data for "meeting.started" and "participant_joined" tests
-	room := &models.Room{
-		ID:       "room123",
-		Name:     "Test Room",
-		Capacity: 10,
-	}
-	_ = repo.SaveRoom(ctx, room)
-
 	// Sample meeting for "meeting.ended" test
 	existingMeeting := &models.Meeting{
 		ID:        "123456789",
 		Topic:     "Test Meeting",
 		Status:    models.MeetingStatusStarted,
 		StartTime: time.Now(),
-		Room:      "room123",
 	}
 	_ = repo.SaveMeeting(ctx, existingMeeting)
 

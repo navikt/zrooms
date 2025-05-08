@@ -21,10 +21,10 @@ func SetupRoutes(repo repository.Repository) *http.ServeMux {
 	webhookHandler := NewWebhookHandler(repo)
 	mux.Handle("/webhook", webhookHandler)
 
-	// Room management endpoints
-	roomHandler := NewRoomHandler(repo)
-	mux.Handle("/api/rooms", roomHandler)
-	mux.Handle("/api/rooms/", roomHandler)
+	// Meeting management endpoints
+	meetingHandler := NewMeetingHandler(repo)
+	mux.Handle("/api/meetings", meetingHandler)
+	mux.Handle("/api/meetings/", meetingHandler)
 
 	return mux
 }

@@ -10,147 +10,125 @@ import (
 	"github.com/navikt/zrooms/internal/repository"
 )
 
-// RoomHandler handles HTTP requests for room management
-type RoomHandler struct {
+// MeetingHandler handles HTTP requests for meeting management
+type MeetingHandler struct {
 	repo repository.Repository
 }
 
-// NewRoomHandler creates a new room handler with the given repository
-func NewRoomHandler(repo repository.Repository) *RoomHandler {
-	return &RoomHandler{
+// NewMeetingHandler creates a new meeting handler with the given repository
+func NewMeetingHandler(repo repository.Repository) *MeetingHandler {
+	return &MeetingHandler{
 		repo: repo,
 	}
 }
 
-// ServeHTTP handles HTTP requests for room management
-func (h *RoomHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+// ServeHTTP handles HTTP requests for meeting management
+func (h *MeetingHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set common headers
 	w.Header().Set("Content-Type", "application/json")
 
-	// Extract room ID from path if present
-	// Path format: /api/rooms/{roomID}/meetings/{meetingID} or /api/rooms/{roomID}
+	// Extract meeting ID from path if present
+	// Path format: /api/meetings/{meetingID}
 	pathParts := strings.Split(r.URL.Path, "/")
-	var roomID, meetingID string
+	var meetingID string
 
-	// Extract roomID and meetingID if they exist in the path
+	// Extract meetingID if it exists in the path
 	if len(pathParts) >= 4 && pathParts[3] != "" {
-		roomID = pathParts[3]
-	}
-	if len(pathParts) >= 6 && pathParts[5] != "" {
-		meetingID = pathParts[5]
+		meetingID = pathParts[3]
 	}
 
 	// Route based on HTTP method and path
 	switch {
-	case r.Method == http.MethodPost && r.URL.Path == "/api/rooms":
-		h.createRoom(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/api/rooms":
-		h.listRooms(w, r)
-	case r.Method == http.MethodGet && roomID != "" && !strings.Contains(r.URL.Path, "/meetings/"):
-		h.getRoom(w, r, roomID)
-	case r.Method == http.MethodPut && roomID != "" && meetingID != "":
-		h.associateMeetingWithRoom(w, r, roomID, meetingID)
+	case r.Method == http.MethodGet && r.URL.Path == "/api/meetings":
+		h.listMeetings(w, r)
+	case r.Method == http.MethodGet && meetingID != "":
+		h.getMeeting(w, r, meetingID)
+	case r.Method == http.MethodPost && r.URL.Path == "/api/meetings":
+		h.createMeeting(w, r)
+	case r.Method == http.MethodDelete && meetingID != "":
+		h.deleteMeeting(w, r, meetingID)
 	default:
 		http.NotFound(w, r)
 	}
 }
 
-// createRoom handles POST /api/rooms to create a new room
-func (h *RoomHandler) createRoom(w http.ResponseWriter, r *http.Request) {
-	var room models.Room
-	
-	// Decode request body into room model
-	err := json.NewDecoder(r.Body).Decode(&room)
+// createMeeting handles POST /api/meetings to create a new meeting
+func (h *MeetingHandler) createMeeting(w http.ResponseWriter, r *http.Request) {
+	var meeting models.Meeting
+
+	// Decode request body into meeting model
+	err := json.NewDecoder(r.Body).Decode(&meeting)
 	if err != nil {
-		log.Printf("Error decoding room request: %v", err)
+		log.Printf("Error decoding meeting request: %v", err)
 		http.Error(w, "Invalid request body", http.StatusBadRequest)
 		return
 	}
 	defer r.Body.Close()
-	
-	// Validate room ID
-	if room.ID == "" {
-		http.Error(w, "Room ID is required", http.StatusBadRequest)
+
+	// Validate meeting ID
+	if meeting.ID == "" {
+		http.Error(w, "Meeting ID is required", http.StatusBadRequest)
 		return
 	}
-	
-	// Save room to repository
-	err = h.repo.SaveRoom(r.Context(), &room)
+
+	// Save meeting to repository
+	err = h.repo.SaveMeeting(r.Context(), &meeting)
 	if err != nil {
-		log.Printf("Error saving room: %v", err)
-		http.Error(w, "Error saving room", http.StatusInternalServerError)
+		log.Printf("Error saving meeting: %v", err)
+		http.Error(w, "Error saving meeting", http.StatusInternalServerError)
 		return
 	}
-	
-	// Return created room as JSON
+
+	// Return created meeting as JSON
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(room)
+	json.NewEncoder(w).Encode(meeting)
 }
 
-// listRooms handles GET /api/rooms to list all rooms
-func (h *RoomHandler) listRooms(w http.ResponseWriter, r *http.Request) {
-	rooms, err := h.repo.ListRooms(r.Context())
+// listMeetings handles GET /api/meetings to list all active meetings
+func (h *MeetingHandler) listMeetings(w http.ResponseWriter, r *http.Request) {
+	meetings, err := h.repo.ListMeetings(r.Context())
 	if err != nil {
-		log.Printf("Error listing rooms: %v", err)
-		http.Error(w, "Error retrieving rooms", http.StatusInternalServerError)
+		log.Printf("Error listing meetings: %v", err)
+		http.Error(w, "Error retrieving meetings", http.StatusInternalServerError)
 		return
 	}
-	
-	json.NewEncoder(w).Encode(rooms)
+
+	json.NewEncoder(w).Encode(meetings)
 }
 
-// getRoom handles GET /api/rooms/{roomID} to get a specific room
-func (h *RoomHandler) getRoom(w http.ResponseWriter, r *http.Request, roomID string) {
-	room, err := h.repo.GetRoom(r.Context(), roomID)
-	if err != nil {
-		log.Printf("Error getting room %s: %v", roomID, err)
-		http.Error(w, "Room not found", http.StatusNotFound)
-		return
-	}
-	
-	json.NewEncoder(w).Encode(room)
-}
-
-// associateMeetingWithRoom handles PUT /api/rooms/{roomID}/meetings/{meetingID}
-// to associate a meeting with a room
-func (h *RoomHandler) associateMeetingWithRoom(w http.ResponseWriter, r *http.Request, roomID, meetingID string) {
-	// First check if the room exists
-	room, err := h.repo.GetRoom(r.Context(), roomID)
-	if err != nil {
-		log.Printf("Error getting room %s: %v", roomID, err)
-		http.Error(w, "Room not found", http.StatusNotFound)
-		return
-	}
-	
-	// Get the meeting if it exists
+// getMeeting handles GET /api/meetings/{meetingID} to get a specific meeting
+func (h *MeetingHandler) getMeeting(w http.ResponseWriter, r *http.Request, meetingID string) {
 	meeting, err := h.repo.GetMeeting(r.Context(), meetingID)
 	if err != nil {
 		log.Printf("Error getting meeting %s: %v", meetingID, err)
 		http.Error(w, "Meeting not found", http.StatusNotFound)
 		return
 	}
-	
-	// Update the room with the meeting ID
-	room.CurrentMeetingID = meetingID
-	err = h.repo.SaveRoom(r.Context(), room)
+
+	json.NewEncoder(w).Encode(meeting)
+}
+
+// deleteMeeting handles DELETE /api/meetings/{meetingID} to delete a meeting
+func (h *MeetingHandler) deleteMeeting(w http.ResponseWriter, r *http.Request, meetingID string) {
+	// Check if the meeting exists first
+	_, err := h.repo.GetMeeting(r.Context(), meetingID)
 	if err != nil {
-		log.Printf("Error updating room: %v", err)
-		http.Error(w, "Error updating room", http.StatusInternalServerError)
+		log.Printf("Error getting meeting %s: %v", meetingID, err)
+		http.Error(w, "Meeting not found", http.StatusNotFound)
 		return
 	}
-	
-	// Update the meeting with the room ID
-	meeting.Room = roomID
-	err = h.repo.SaveMeeting(r.Context(), meeting)
+
+	// Delete the meeting
+	err = h.repo.DeleteMeeting(r.Context(), meetingID)
 	if err != nil {
-		log.Printf("Error updating meeting: %v", err)
-		http.Error(w, "Error updating meeting", http.StatusInternalServerError)
+		log.Printf("Error deleting meeting: %v", err)
+		http.Error(w, "Error deleting meeting", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Return success message
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{
-		"message": "Meeting associated with room successfully",
+		"message": "Meeting deleted successfully",
 	})
 }

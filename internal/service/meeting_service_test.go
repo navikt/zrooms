@@ -1,0 +1,93 @@
+package service_test
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/navikt/zrooms/internal/models"
+	"github.com/navikt/zrooms/internal/repository/memory"
+	"github.com/navikt/zrooms/internal/service"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestMeetingService_GetMeetingStatusData(t *testing.T) {
+	// Create repository and service
+	repo := memory.NewRepository()
+	meetingService := service.NewMeetingService(repo)
+	ctx := context.Background()
+
+	// Set up test data - add meetings with different statuses
+	now := time.Now()
+
+	// Meeting 1: In progress with 2 participants
+	meeting1 := &models.Meeting{
+		ID:        "meeting1",
+		Topic:     "Current Meeting",
+		Status:    models.MeetingStatusStarted,
+		StartTime: now.Add(-30 * time.Minute),
+	}
+	require.NoError(t, repo.SaveMeeting(ctx, meeting1))
+	require.NoError(t, repo.AddParticipantToMeeting(ctx, meeting1.ID, "user1"))
+	require.NoError(t, repo.AddParticipantToMeeting(ctx, meeting1.ID, "user2"))
+
+	// Meeting 2: Scheduled for future
+	meeting2 := &models.Meeting{
+		ID:        "meeting2",
+		Topic:     "Future Meeting",
+		Status:    models.MeetingStatusCreated,
+		StartTime: now.Add(1 * time.Hour),
+	}
+	require.NoError(t, repo.SaveMeeting(ctx, meeting2))
+
+	// Meeting 3: Already ended (should be excluded from results)
+	meeting3 := &models.Meeting{
+		ID:        "meeting3",
+		Topic:     "Past Meeting",
+		Status:    models.MeetingStatusEnded,
+		StartTime: now.Add(-2 * time.Hour),
+		EndTime:   now.Add(-1 * time.Hour),
+	}
+	require.NoError(t, repo.SaveMeeting(ctx, meeting3))
+
+	// Execute the method being tested
+	result, err := meetingService.GetMeetingStatusData(ctx)
+	require.NoError(t, err)
+
+	// Should return 2 meetings (the active and scheduled ones)
+	assert.Len(t, result, 2, "Should return 2 meetings (excluding the ended one)")
+
+	// Find and verify meeting1 data
+	var meeting1Data *service.MeetingStatusData
+	var meeting2Data *service.MeetingStatusData
+
+	for i := range result {
+		if result[i].Meeting.ID == meeting1.ID {
+			meeting1Data = &result[i]
+		} else if result[i].Meeting.ID == meeting2.ID {
+			meeting2Data = &result[i]
+		}
+	}
+
+	// Verify meeting 1 data (in progress)
+	require.NotNil(t, meeting1Data, "Meeting 1 should be in the results")
+	assert.Equal(t, meeting1.ID, meeting1Data.Meeting.ID)
+	assert.Equal(t, meeting1.Topic, meeting1Data.Meeting.Topic)
+	assert.Equal(t, "in_progress", meeting1Data.Status)
+	assert.Equal(t, 2, meeting1Data.ParticipantCount)
+	assert.Equal(t, meeting1.StartTime, meeting1Data.StartedAt)
+
+	// Verify meeting 2 data (scheduled)
+	require.NotNil(t, meeting2Data, "Meeting 2 should be in the results")
+	assert.Equal(t, meeting2.ID, meeting2Data.Meeting.ID)
+	assert.Equal(t, meeting2.Topic, meeting2Data.Meeting.Topic)
+	assert.Equal(t, "scheduled", meeting2Data.Status)
+	assert.Equal(t, 0, meeting2Data.ParticipantCount)
+	assert.Equal(t, meeting2.StartTime, meeting2Data.StartedAt)
+
+	// Verify meeting 3 (ended) is not in the results
+	for _, data := range result {
+		assert.NotEqual(t, meeting3.ID, data.Meeting.ID, "Ended meeting should not be in the results")
+	}
+}

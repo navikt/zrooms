@@ -19,7 +19,6 @@ func TestMeetingRepository(t *testing.T) {
 		ID:        "meeting123",
 		Status:    models.MeetingStatusStarted,
 		StartTime: time.Now(),
-		Room:      "room101",
 	}
 
 	// Test SaveMeeting and GetMeeting
@@ -31,7 +30,6 @@ func TestMeetingRepository(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, meeting.ID, savedMeeting.ID)
 		assert.Equal(t, meeting.Status, savedMeeting.Status)
-		assert.Equal(t, meeting.Room, savedMeeting.Room)
 		assert.Empty(t, savedMeeting.Participants, "Should not store participant details")
 	})
 
@@ -53,39 +51,6 @@ func TestMeetingRepository(t *testing.T) {
 	})
 }
 
-func TestRoomRepository(t *testing.T) {
-	repo := memory.NewRepository()
-	ctx := context.Background()
-
-	// Test room
-	room := &models.Room{
-		ID:       "room101",
-		Name:     "Room 101",
-		Capacity: 10,
-		Location: "1st Floor",
-	}
-
-	// Test SaveRoom and GetRoom
-	t.Run("SaveAndGetRoom", func(t *testing.T) {
-		err := repo.SaveRoom(ctx, room)
-		assert.NoError(t, err)
-
-		savedRoom, err := repo.GetRoom(ctx, room.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, room.ID, savedRoom.ID)
-		assert.Equal(t, room.Name, savedRoom.Name)
-		assert.Equal(t, room.Capacity, savedRoom.Capacity)
-	})
-
-	// Test ListRooms
-	t.Run("ListRooms", func(t *testing.T) {
-		rooms, err := repo.ListRooms(ctx)
-		assert.NoError(t, err)
-		assert.Len(t, rooms, 1)
-		assert.Equal(t, room.ID, rooms[0].ID)
-	})
-}
-
 func TestParticipantOperations(t *testing.T) {
 	repo := memory.NewRepository()
 	ctx := context.Background()
@@ -95,7 +60,6 @@ func TestParticipantOperations(t *testing.T) {
 		ID:        "meeting456",
 		Status:    models.MeetingStatusStarted,
 		StartTime: time.Now(),
-		Room:      "room101",
 	}
 	err := repo.SaveMeeting(ctx, meeting)
 	assert.NoError(t, err)
@@ -129,38 +93,18 @@ func TestParticipantOperations(t *testing.T) {
 	})
 }
 
-func TestRoomStatus(t *testing.T) {
+func TestMeetingWithParticipants(t *testing.T) {
 	repo := memory.NewRepository()
 	ctx := context.Background()
 
-	// Create a room
-	room := &models.Room{
-		ID:       "room202",
-		Name:     "Conference Room",
-		Capacity: 20,
-	}
-	err := repo.SaveRoom(ctx, room)
-	assert.NoError(t, err)
-
-	// Test GetRoomStatus with no meeting
-	t.Run("EmptyRoomStatus", func(t *testing.T) {
-		status, err := repo.GetRoomStatus(ctx, room.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, room.ID, status.RoomID)
-		assert.Equal(t, room.Name, status.RoomName)
-		assert.True(t, status.Available)
-		assert.Empty(t, status.CurrentMeetingID)
-		assert.Zero(t, status.ParticipantCount)
-	})
-
-	// Create a meeting for the room
+	// Create a meeting
 	meeting := &models.Meeting{
 		ID:        "meeting789",
+		Topic:     "Important Discussion",
 		Status:    models.MeetingStatusStarted,
 		StartTime: time.Now(),
-		Room:      room.ID,
 	}
-	err = repo.SaveMeeting(ctx, meeting)
+	err := repo.SaveMeeting(ctx, meeting)
 	assert.NoError(t, err)
 
 	// Add participants
@@ -169,24 +113,11 @@ func TestRoomStatus(t *testing.T) {
 	err = repo.AddParticipantToMeeting(ctx, meeting.ID, "user2")
 	assert.NoError(t, err)
 
-	// Test GetRoomStatus with an active meeting
-	t.Run("OccupiedRoomStatus", func(t *testing.T) {
-		status, err := repo.GetRoomStatus(ctx, room.ID)
+	// Test participant count
+	t.Run("ParticipantCount", func(t *testing.T) {
+		count, err := repo.CountParticipantsInMeeting(ctx, meeting.ID)
 		assert.NoError(t, err)
-		assert.Equal(t, room.ID, status.RoomID)
-		assert.False(t, status.Available)
-		assert.Equal(t, meeting.ID, status.CurrentMeetingID)
-		assert.Equal(t, 2, status.ParticipantCount)
-		assert.WithinDuration(t, meeting.StartTime, status.MeetingStartTime, time.Second)
-	})
-
-	// Test ListRoomStatuses
-	t.Run("ListRoomStatuses", func(t *testing.T) {
-		statuses, err := repo.ListRoomStatuses(ctx)
-		assert.NoError(t, err)
-		assert.Len(t, statuses, 1)
-		assert.Equal(t, room.ID, statuses[0].RoomID)
-		assert.Equal(t, 2, statuses[0].ParticipantCount)
+		assert.Equal(t, 2, count)
 	})
 
 	// End the meeting
@@ -195,11 +126,14 @@ func TestRoomStatus(t *testing.T) {
 	err = repo.SaveMeeting(ctx, meeting)
 	assert.NoError(t, err)
 
-	// Test room status after meeting has ended
-	t.Run("RoomStatusAfterMeetingEnded", func(t *testing.T) {
-		status, err := repo.GetRoomStatus(ctx, room.ID)
+	// Test that ended meetings are not included in ListMeetings
+	t.Run("EndedMeetingsNotListed", func(t *testing.T) {
+		meetings, err := repo.ListMeetings(ctx)
 		assert.NoError(t, err)
-		assert.True(t, status.Available)
-		assert.Empty(t, status.CurrentMeetingID)
+
+		// Check if the ended meeting is excluded from active meetings list
+		for _, m := range meetings {
+			assert.NotEqual(t, meeting.ID, m.ID, "Ended meeting should not be in active meetings list")
+		}
 	})
 }

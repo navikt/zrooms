@@ -22,14 +22,12 @@ func TestMeeting(t *testing.T) {
 			Email: "host@example.com",
 		},
 		Participants: []models.Participant{},
-		Room:         "Room A",
 	}
 
 	// Verify initial state
 	assert.Equal(t, "123456789", m.ID)
 	assert.Equal(t, "Test Meeting", m.Topic)
 	assert.Equal(t, models.MeetingStatusStarted, m.Status)
-	assert.Equal(t, "Room A", m.Room)
 	assert.Equal(t, 0, len(m.Participants))
 
 	// Test adding participants
@@ -88,24 +86,38 @@ func TestMeetingStatus(t *testing.T) {
 	}
 }
 
-func TestRoom(t *testing.T) {
-	r := models.Room{
-		ID:               "room123",
-		Name:             "Meeting Room A",
-		Capacity:         10,
-		Location:         "3rd Floor",
-		CurrentMeetingID: "123456789",
+// TestMeetingLifecycle tests the complete lifecycle of a meeting
+func TestMeetingLifecycle(t *testing.T) {
+	// Create a meeting
+	m := &models.Meeting{
+		ID:        "lifecycle123",
+		Topic:     "Lifecycle Test",
+		Status:    models.MeetingStatusCreated,
+		StartTime: time.Now().Add(1 * time.Hour), // Scheduled for future
+		Duration:  30,
 	}
 
-	assert.Equal(t, "room123", r.ID)
-	assert.Equal(t, "Meeting Room A", r.Name)
-	assert.Equal(t, 10, r.Capacity)
-	assert.Equal(t, "3rd Floor", r.Location)
-	assert.Equal(t, "123456789", r.CurrentMeetingID)
+	// Meeting should initially have no participants
+	assert.Equal(t, 0, len(m.Participants))
 
-	// Test room availability
-	assert.False(t, r.IsAvailable())
+	// Transition to started status
+	m.Status = models.MeetingStatusStarted
+	m.StartTime = time.Now() // Update start time to now
+	assert.Equal(t, models.MeetingStatusStarted, m.Status)
 
-	r.CurrentMeetingID = ""
-	assert.True(t, r.IsAvailable())
+	// Add participants
+	m.AddParticipant(models.Participant{ID: "user1", Name: "User 1"})
+	m.AddParticipant(models.Participant{ID: "user2", Name: "User 2"})
+	assert.Equal(t, 2, len(m.Participants))
+
+	// Remove a participant
+	m.RemoveParticipant("user1")
+	assert.Equal(t, 1, len(m.Participants))
+	assert.Equal(t, "user2", m.Participants[0].ID)
+
+	// End the meeting
+	m.Status = models.MeetingStatusEnded
+	m.EndTime = time.Now()
+	assert.Equal(t, models.MeetingStatusEnded, m.Status)
+	assert.False(t, m.EndTime.IsZero())
 }

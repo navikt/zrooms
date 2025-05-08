@@ -20,13 +20,13 @@ func main() {
 	repo := memory.NewRepository()
 
 	// Initialize the service layer
-	roomService := service.NewRoomService(repo)
+	meetingService := service.NewMeetingService(repo)
 
 	// Set up API routes with repository
 	mux := api.SetupRoutes(repo)
 
 	// Set up web UI routes
-	webHandler, err := web.NewHandler(roomService, "./internal/web/templates", 30) // 30-second refresh rate
+	webHandler, err := web.NewHandler(meetingService, "./internal/web/templates", 30) // 30-second refresh rate
 	if err != nil {
 		log.Fatalf("Failed to initialize web handler: %v", err)
 	}

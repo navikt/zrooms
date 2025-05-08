@@ -232,18 +232,6 @@ func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models
 		meeting.Topic = payload.Object.Topic
 	}
 
-	// Assign to a room - in a real implementation, this would be more sophisticated
-	// For now, we'll just use a default room if none is assigned
-	if meeting.Room == "" {
-		// Get an available room or use a default
-		rooms, err := h.repo.ListRooms(ctx)
-		if err == nil && len(rooms) > 0 {
-			meeting.Room = rooms[0].ID
-		} else {
-			meeting.Room = "default-room"
-		}
-	}
-
 	if err := h.repo.SaveMeeting(ctx, meeting); err != nil {
 		log.Printf("Error saving meeting: %v", err)
 	}
@@ -264,14 +252,16 @@ func (h *WebhookHandler) handleMeetingEnded(ctx context.Context, event *models.W
 		return
 	}
 
-	// Get existing meeting to preserve room and other details
+	// Get existing meeting to preserve important details
 	existingMeeting, err := h.repo.GetMeeting(ctx, meeting.ID)
 	if err == nil {
-		// Keep important fields from existing meeting
-		meeting.Room = existingMeeting.Room
-		meeting.Topic = existingMeeting.Topic
+		// Keep topic from existing meeting if it's not set in the new one
 		if meeting.Topic == "" {
-			meeting.Topic = payload.Object.Topic
+			if existingMeeting.Topic != "" {
+				meeting.Topic = existingMeeting.Topic
+			} else if payload.Object.Topic != "" {
+				meeting.Topic = payload.Object.Topic
+			}
 		}
 	}
 

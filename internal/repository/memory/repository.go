@@ -17,11 +17,10 @@ var _ repository.Repository = (*Repository)(nil)
 // ErrNotFound is returned when a requested entity is not found
 var ErrNotFound = errors.New("entity not found")
 
-// MeetingState contains minimal information about a meeting's state
+// MeetingState contains information about a meeting's state
 type MeetingState struct {
 	ID             string // Meeting ID
 	Topic          string // Meeting Topic
-	RoomID         string // Room ID
 	Status         models.MeetingStatus
 	StartTime      time.Time
 	EndTime        time.Time
@@ -30,8 +29,7 @@ type MeetingState struct {
 
 // Repository implements the repository.Repository interface with in-memory storage
 type Repository struct {
-	meetingStates map[string]*MeetingState // Stores minimal meeting state data
-	rooms         map[string]*models.Room  // Room information
+	meetingStates map[string]*MeetingState // Stores meeting state data
 	mu            sync.RWMutex
 }
 
@@ -39,11 +37,10 @@ type Repository struct {
 func NewRepository() *Repository {
 	return &Repository{
 		meetingStates: make(map[string]*MeetingState),
-		rooms:         make(map[string]*models.Room),
 	}
 }
 
-// SaveMeeting saves minimal meeting state information to the repository
+// SaveMeeting saves meeting state information to the repository
 func (r *Repository) SaveMeeting(ctx context.Context, meeting *models.Meeting) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -55,7 +52,6 @@ func (r *Repository) SaveMeeting(ctx context.Context, meeting *models.Meeting) e
 		state = &MeetingState{
 			ID:             meeting.ID,
 			Topic:          meeting.Topic,
-			RoomID:         meeting.Room,
 			Status:         meeting.Status,
 			StartTime:      meeting.StartTime,
 			ParticipantIDs: make(map[string]struct{}),
@@ -64,7 +60,6 @@ func (r *Repository) SaveMeeting(ctx context.Context, meeting *models.Meeting) e
 	} else {
 		// Update existing meeting state
 		state.Status = meeting.Status
-		state.RoomID = meeting.Room
 
 		// Only update topic if it's provided and not empty
 		if meeting.Topic != "" {
@@ -74,19 +69,6 @@ func (r *Repository) SaveMeeting(ctx context.Context, meeting *models.Meeting) e
 		// Set end time if the meeting has ended
 		if meeting.Status == models.MeetingStatusEnded {
 			state.EndTime = meeting.EndTime
-		}
-	}
-
-	// Update room status if room is specified
-	if meeting.Room != "" {
-		room, exists := r.rooms[meeting.Room]
-		if exists {
-			if meeting.Status == models.MeetingStatusStarted {
-				room.CurrentMeetingID = meeting.ID
-			} else if meeting.Status == models.MeetingStatusEnded {
-				room.CurrentMeetingID = ""
-			}
-			r.rooms[meeting.Room] = room
 		}
 	}
 
@@ -103,14 +85,13 @@ func (r *Repository) GetMeeting(ctx context.Context, id string) (*models.Meeting
 		return nil, ErrNotFound
 	}
 
-	// Convert minimal state back to a Meeting model with only the necessary data
+	// Convert state back to a Meeting model with only the necessary data
 	meeting := &models.Meeting{
 		ID:           state.ID,
 		Topic:        state.Topic,
 		Status:       state.Status,
 		StartTime:    state.StartTime,
 		EndTime:      state.EndTime,
-		Room:         state.RoomID,
 		Participants: []models.Participant{}, // Empty slice, we don't store participant details
 	}
 
@@ -131,7 +112,6 @@ func (r *Repository) ListMeetings(ctx context.Context) ([]*models.Meeting, error
 				Topic:        state.Topic,
 				Status:       state.Status,
 				StartTime:    state.StartTime,
-				Room:         state.RoomID,
 				Participants: []models.Participant{}, // Empty slice, we don't store participant details
 			}
 			meetings = append(meetings, meeting)
@@ -146,64 +126,15 @@ func (r *Repository) DeleteMeeting(ctx context.Context, id string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	state, ok := r.meetingStates[id]
+	_, ok := r.meetingStates[id]
 	if !ok {
 		return ErrNotFound
-	}
-
-	// If this meeting is assigned to a room, clear the room's current meeting
-	if state.RoomID != "" {
-		if room, exists := r.rooms[state.RoomID]; exists && room.CurrentMeetingID == id {
-			room.CurrentMeetingID = ""
-			r.rooms[state.RoomID] = room
-		}
 	}
 
 	// Delete the meeting state
 	delete(r.meetingStates, id)
 
 	return nil
-}
-
-// SaveRoom saves a room to the repository
-func (r *Repository) SaveRoom(ctx context.Context, room *models.Room) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Make a copy to avoid external modifications
-	roomCopy := *room
-	r.rooms[room.ID] = &roomCopy
-
-	return nil
-}
-
-// GetRoom retrieves a room by ID
-func (r *Repository) GetRoom(ctx context.Context, id string) (*models.Room, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	room, ok := r.rooms[id]
-	if !ok {
-		return nil, ErrNotFound
-	}
-
-	// Return a copy to avoid external modifications
-	roomCopy := *room
-	return &roomCopy, nil
-}
-
-// ListRooms returns all rooms
-func (r *Repository) ListRooms(ctx context.Context) ([]*models.Room, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	rooms := make([]*models.Room, 0, len(r.rooms))
-	for _, room := range r.rooms {
-		roomCopy := *room
-		rooms = append(rooms, &roomCopy)
-	}
-
-	return rooms, nil
 }
 
 // AddParticipantToMeeting adds a participant ID to a meeting
@@ -253,63 +184,4 @@ func (r *Repository) CountParticipantsInMeeting(ctx context.Context, meetingID s
 	}
 
 	return len(state.ParticipantIDs), nil
-}
-
-// GetRoomStatus gets the current status of a room including meeting information
-func (r *Repository) GetRoomStatus(ctx context.Context, roomID string) (*models.RoomStatus, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	// Check if room exists
-	room, ok := r.rooms[roomID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-
-	status := &models.RoomStatus{
-		RoomID:           roomID,
-		RoomName:         room.Name,
-		Available:        room.CurrentMeetingID == "",
-		CurrentMeetingID: room.CurrentMeetingID,
-	}
-
-	// If room has an active meeting, get participant count and topic
-	if room.CurrentMeetingID != "" {
-		if state, ok := r.meetingStates[room.CurrentMeetingID]; ok {
-			status.ParticipantCount = len(state.ParticipantIDs)
-			status.MeetingStartTime = state.StartTime
-			status.MeetingTopic = state.Topic
-		}
-	}
-
-	return status, nil
-}
-
-// ListRoomStatuses gets the status of all rooms
-func (r *Repository) ListRoomStatuses(ctx context.Context) ([]*models.RoomStatus, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	statuses := make([]*models.RoomStatus, 0, len(r.rooms))
-	for roomID, room := range r.rooms {
-		status := &models.RoomStatus{
-			RoomID:           roomID,
-			RoomName:         room.Name,
-			Available:        room.CurrentMeetingID == "",
-			CurrentMeetingID: room.CurrentMeetingID,
-		}
-
-		// If room has an active meeting, get participant count and topic
-		if room.CurrentMeetingID != "" {
-			if state, ok := r.meetingStates[room.CurrentMeetingID]; ok {
-				status.ParticipantCount = len(state.ParticipantIDs)
-				status.MeetingStartTime = state.StartTime
-				status.MeetingTopic = state.Topic
-			}
-		}
-
-		statuses = append(statuses, status)
-	}
-
-	return statuses, nil
 }
