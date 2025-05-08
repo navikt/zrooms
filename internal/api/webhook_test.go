@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
@@ -31,14 +32,41 @@ func TestWebhookSignatureValidation(t *testing.T) {
 		expectSuccess  bool
 	}{
 		{
-			name:           "Valid Signature",
+			name:           "Valid Signature - Hex Encoded",
 			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
 			secretToken:    "test_secret_token",
 			setupSignature: func(req *http.Request, payload string, secretToken string) {
-				// Create a valid signature
+				// Create a valid signature using hex encoding
 				h256 := hmac.New(sha256.New, []byte(secretToken))
 				h256.Write([]byte(payload))
 				signature := hex.EncodeToString(h256.Sum(nil))
+				req.Header.Set("x-zm-signature", "v0="+signature)
+			},
+			expectSuccess: true,
+		},
+		{
+			name:           "Valid Signature - Base64 Encoded (Zoom Docs Format)",
+			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
+			secretToken:    "test_secret_token",
+			setupSignature: func(req *http.Request, payload string, secretToken string) {
+				// Create a valid signature using base64 encoding (as per Zoom docs)
+				h256 := hmac.New(sha256.New, []byte(secretToken))
+				h256.Write([]byte(payload))
+				signature := base64.StdEncoding.EncodeToString(h256.Sum(nil))
+				req.Header.Set("x-zm-signature", "v0="+signature)
+			},
+			expectSuccess: true,
+		},
+		{
+			name:           "Valid Signature - Raw Hash Binary",
+			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
+			secretToken:    "test_secret_token",
+			setupSignature: func(req *http.Request, payload string, secretToken string) {
+				// Create a valid signature using the raw hash
+				h256 := hmac.New(sha256.New, []byte(secretToken))
+				h256.Write([]byte(payload))
+				// Use base64 to safely transport binary data in header
+				signature := base64.StdEncoding.EncodeToString(h256.Sum(nil))
 				req.Header.Set("x-zm-signature", "v0="+signature)
 			},
 			expectSuccess: true,
@@ -71,7 +99,21 @@ func TestWebhookSignatureValidation(t *testing.T) {
 				h256 := hmac.New(sha256.New, []byte(secretToken))
 				h256.Write([]byte(payload))
 				signature := hex.EncodeToString(h256.Sum(nil))
-				req.Header.Set("x-zm-signature", signature)
+				req.Header.Set("x-zm-signature", signature) // Missing "v0=" prefix
+			},
+			expectSuccess: false,
+		},
+		{
+			name:           "Tampered Payload",
+			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "TAMPERED", "object": {"id": "123"}}}`,
+			secretToken:    "test_secret_token",
+			setupSignature: func(req *http.Request, payload string, secretToken string) {
+				// Sign a different payload than what's actually sent
+				originalPayload := `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`
+				h256 := hmac.New(sha256.New, []byte(secretToken))
+				h256.Write([]byte(originalPayload))
+				signature := hex.EncodeToString(h256.Sum(nil))
+				req.Header.Set("x-zm-signature", "v0="+signature)
 			},
 			expectSuccess: false,
 		},
@@ -80,14 +122,7 @@ func TestWebhookSignatureValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a test WebhookHandler with the test secret token
-			handler := &api.WebhookHandler{}
-
-			// Need to use reflection to set the private secretToken field for testing
-			// This is hacky for testing purposes - in real code we'd refactor to make this easier to test
-			// using dependency injection or interfaces
-
-			// Use exported method that accepts a repository and creates a handler with the token
-			handler = api.NewWebhookHandlerWithSecret(repo, tt.secretToken)
+			handler := api.NewWebhookHandlerWithSecret(repo, tt.secretToken)
 
 			// Create a request with the webhook payload
 			req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(tt.webhookPayload))
@@ -104,6 +139,8 @@ func TestWebhookSignatureValidation(t *testing.T) {
 
 			if tt.expectSuccess {
 				assert.Equal(t, http.StatusOK, rr.Code, "Expected successful validation")
+				// Additional check to make sure it's really accepting the event
+				assert.Contains(t, rr.Body.String(), `"success": true`)
 			} else {
 				assert.Equal(t, http.StatusUnauthorized, rr.Code, "Expected unauthorized status for invalid signature")
 			}

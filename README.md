@@ -51,6 +51,11 @@ Configuration is handled through environment variables:
 - `PORT`: HTTP server port (default: 8080)
 - `REFRESH_RATE`: Web UI auto-refresh interval in seconds (default: 30)
 - `LOG_LEVEL`: Logging level (default: info)
+- `ZOOM_CLIENT_ID`: Zoom OAuth client ID
+- `ZOOM_CLIENT_SECRET`: Zoom OAuth client secret
+- `ZOOM_REDIRECT_URI`: Redirect URI for Zoom OAuth
+- `ZOOM_WEBHOOK_URL`: URL for Zoom to send webhook events
+- `ZOOM_WEBHOOK_SECRET_TOKEN`: Secret token for validating Zoom webhook requests
 
 ## Usage
 

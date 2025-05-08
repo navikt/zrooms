@@ -105,7 +105,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // verifyZoomWebhookSignature validates that the request is actually from Zoom
-// by checking the x-zm-signature header against the message's HMAC using our secret token
+// using the approach specified in Zoom's webhook documentation:
+// https://developers.zoom.us/docs/api/webhooks/
 func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 	// Get the signature from the header
 	signatureHeader := r.Header.Get("x-zm-signature")
@@ -132,30 +133,41 @@ func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 			log.Printf("Error reading request body for signature verification: %v", err)
 			return false
 		}
-
+		
 		// Restore the body so it can be read again
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
 	}
 
-	// Calculate the expected signature
-	h256 := hmac.New(sha256.New, []byte(h.secretToken))
-	h256.Write(body)
-	expectedSignature := hex.EncodeToString(h256.Sum(nil))
-
-	// Direct comparison with hex encoded signature
-	if hmac.Equal([]byte(expectedSignature), []byte(receivedSignature)) {
+	// Calculate the expected signature using HMAC-SHA256
+	mac := hmac.New(sha256.New, []byte(h.secretToken))
+	mac.Write(body)
+	computedHash := mac.Sum(nil)
+	
+	// Try multiple comparison approaches since Zoom's documentation is somewhat ambiguous
+	
+	// 1. Try direct comparison with provided signature (if it's hex encoded)
+	if hmac.Equal([]byte(hex.EncodeToString(computedHash)), []byte(receivedSignature)) {
 		return true
 	}
-
-	// Try base64 decode in case Zoom sent a base64 encoded signature
-	decodedSignature, err := base64.StdEncoding.DecodeString(receivedSignature)
-	if err == nil {
-		// Compare with the raw binary hash
-		return hmac.Equal(h256.Sum(nil), decodedSignature)
+	
+	// 2. Try comparing with base64 encoding (the way described in Zoom docs)
+	computedBase64 := base64.StdEncoding.EncodeToString(computedHash)
+	if hmac.Equal([]byte(computedBase64), []byte(receivedSignature)) {
+		return true
 	}
-
-	// No match found
+	
+	// 3. Try comparing with the decoded signature if it's base64
+	decodedSignature, err := base64.StdEncoding.DecodeString(receivedSignature)
+	if err == nil && hmac.Equal(computedHash, decodedSignature) {
+		return true
+	}
+	
+	// Log failure details (only in debug/development)
 	log.Printf("Signature validation failed")
+	log.Printf("Received: %s", receivedSignature)
+	log.Printf("Expected (hex): %s", hex.EncodeToString(computedHash))
+	log.Printf("Expected (base64): %s", base64.StdEncoding.EncodeToString(computedHash))
+	
 	return false
 }
 
