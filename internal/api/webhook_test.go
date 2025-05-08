@@ -5,9 +5,9 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -32,46 +32,6 @@ func TestWebhookSignatureValidation(t *testing.T) {
 		setupSignature func(req *http.Request, payload string, secretToken string)
 		expectSuccess  bool
 	}{
-		{
-			name:           "Valid Signature - Hex Encoded",
-			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
-			secretToken:    "test_secret_token",
-			setupSignature: func(req *http.Request, payload string, secretToken string) {
-				// Create a valid signature using hex encoding
-				h256 := hmac.New(sha256.New, []byte(secretToken))
-				h256.Write([]byte(payload))
-				signature := hex.EncodeToString(h256.Sum(nil))
-				req.Header.Set("x-zm-signature", "v0="+signature)
-			},
-			expectSuccess: true,
-		},
-		{
-			name:           "Valid Signature - Base64 Encoded (Zoom Docs Format)",
-			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
-			secretToken:    "test_secret_token",
-			setupSignature: func(req *http.Request, payload string, secretToken string) {
-				// Create a valid signature using base64 encoding (as per Zoom docs)
-				h256 := hmac.New(sha256.New, []byte(secretToken))
-				h256.Write([]byte(payload))
-				signature := base64.StdEncoding.EncodeToString(h256.Sum(nil))
-				req.Header.Set("x-zm-signature", "v0="+signature)
-			},
-			expectSuccess: true,
-		},
-		{
-			name:           "Valid Signature - Raw Hash Binary",
-			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
-			secretToken:    "test_secret_token",
-			setupSignature: func(req *http.Request, payload string, secretToken string) {
-				// Create a valid signature using the raw hash
-				h256 := hmac.New(sha256.New, []byte(secretToken))
-				h256.Write([]byte(payload))
-				// Use base64 to safely transport binary data in header
-				signature := base64.StdEncoding.EncodeToString(h256.Sum(nil))
-				req.Header.Set("x-zm-signature", "v0="+signature)
-			},
-			expectSuccess: true,
-		},
 		{
 			name:           "Invalid Signature",
 			webhookPayload: `{"event": "meeting.started", "payload": {"account_id": "abc123", "object": {"id": "123"}}}`,
@@ -341,17 +301,20 @@ func TestWebhookURLValidation(t *testing.T) {
 
 	// Set up the webhook secret token for testing
 	secretToken := "webhook_secret_token"
+	timestamp := "1739923528"
 
 	// Create a test request
 	req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(validationPayload))
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
-	req.Header.Set("x-zm-request-timestamp", "1739923528")
+	req.Header.Set("x-zm-request-timestamp", timestamp)
 
-	// Create a valid signature for the test payload
+	// Create a valid signature for the test payload using the new format (v0:timestamp:body)
+	message := fmt.Sprintf("v0:%s:%s", timestamp, validationPayload)
 	mac := hmac.New(sha256.New, []byte(secretToken))
-	mac.Write([]byte(validationPayload))
-	signature := hex.EncodeToString(mac.Sum(nil))
-	req.Header.Set("x-zm-signature", "v0="+signature)
+	mac.Write([]byte(message))
+	computedHash := mac.Sum(nil)
+	computedHex := hex.EncodeToString(computedHash)
+	req.Header.Set("x-zm-signature", "v0="+computedHex)
 
 	// Create a response recorder
 	rr := httptest.NewRecorder()

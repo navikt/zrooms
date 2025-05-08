@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -155,7 +154,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // verifyZoomWebhookSignature validates that the request is actually from Zoom
 // using the approach specified in Zoom's webhook documentation.
-// It verifies the x-zm-signature header against an HMAC-SHA256 hash of the request body
+// It verifies the x-zm-signature header against an HMAC-SHA256 hash of the timestamp and request body
 // using the configured webhook secret token.
 func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 	// Get the signature from the header
@@ -173,6 +172,13 @@ func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 	}
 	receivedSignature := parts[1]
 
+	// Get the timestamp from the header
+	timestamp := r.Header.Get("x-zm-request-timestamp")
+	if timestamp == "" {
+		log.Printf("Missing x-zm-request-timestamp header")
+		return false
+	}
+
 	// Read the request body for verification
 	var body []byte
 	var err error
@@ -188,32 +194,20 @@ func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 		r.Body = io.NopCloser(strings.NewReader(string(body)))
 	}
 
+	// Construct the message string: v0:timestamp:body
+	message := fmt.Sprintf("v0:%s:%s", timestamp, string(body))
+
 	// Calculate the expected signature using HMAC-SHA256
 	mac := hmac.New(sha256.New, []byte(h.secretToken))
-	mac.Write(body)
+	mac.Write([]byte(message))
 	computedHash := mac.Sum(nil)
-
-	// Try hex encoding (primary method Zoom uses)
 	computedHex := hex.EncodeToString(computedHash)
-	if hmac.Equal([]byte(computedHex), []byte(receivedSignature)) {
-		return true
-	}
 
-	// Fallback: try base64 encoding (in case Zoom changes their implementation)
-	computedBase64 := base64.StdEncoding.EncodeToString(computedHash)
-	if hmac.Equal([]byte(computedBase64), []byte(receivedSignature)) {
-		return true
-	}
+	// Compare the computed signature with the received signature
+	expectedSignature := computedHex
 
-	// Fallback: try comparing with decoded base64 (if signature itself is base64-encoded)
-	decodedSignature, err := base64.StdEncoding.DecodeString(receivedSignature)
-	if err == nil && hmac.Equal(computedHash, decodedSignature) {
-		return true
-	}
-
-	// All verification methods failed
-	log.Printf("Webhook signature validation failed")
-	return false
+	// Direct comparison of hex-encoded signatures
+	return hmac.Equal([]byte(expectedSignature), []byte(receivedSignature))
 }
 
 // handleMeetingStarted processes a meeting.started event
