@@ -57,6 +57,11 @@ func NewRepository(cfg config.RedisConfig) (*Repository, error) {
 			opt.Password = cfg.Password
 		}
 
+		// Use username from config if not in URI
+		if opt.Username == "" && cfg.Username != "" {
+			opt.Username = cfg.Username
+		}
+
 		// Create client with options from URI
 		client = redis.NewClient(opt)
 	} else {
@@ -72,11 +77,17 @@ func NewRepository(cfg config.RedisConfig) (*Repository, error) {
 		})
 	}
 
-	// Test connection
+	// Test connection with appropriate timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
+	// Ping with specific error handling for auth issues
 	if err := client.Ping(ctx).Err(); err != nil {
+		// Check for authentication errors and provide clear message
+		if err.Error() == "WRONGPASS invalid username-password pair or user is disabled." ||
+			err.Error() == "NOAUTH Authentication required." {
+			return nil, fmt.Errorf("failed to authenticate with Redis: %w", err)
+		}
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
 
