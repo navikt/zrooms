@@ -10,6 +10,8 @@ metadata:
 spec:
   image: "{{ image }}"
   port: 8080
+  ingresses:
+    - https://zrooms.nav.no
   azure:
     application:
       enabled: true
@@ -38,5 +40,9 @@ spec:
     path: health/ready
   envFrom:
     - secret: zrooms
-  ingresses:
-    - https://zrooms.nav.no
+  valkey:
+    - instance: ZROOMS
+      access: readwrite
+  env:
+    - name: REDIS_ENABLED
+      value: "true"

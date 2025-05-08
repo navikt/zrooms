@@ -10,14 +10,30 @@ import (
 	"time"
 
 	"github.com/navikt/zrooms/internal/api"
-	"github.com/navikt/zrooms/internal/repository/memory"
+	"github.com/navikt/zrooms/internal/config"
+	"github.com/navikt/zrooms/internal/repository"
 	"github.com/navikt/zrooms/internal/service"
 	"github.com/navikt/zrooms/internal/web"
 )
 
 func main() {
-	// Initialize the repository
-	repo := memory.NewRepository()
+	// Get Redis configuration
+	redisConfig := config.GetRedisConfig()
+
+	// Initialize the repository using the factory
+	repo, err := repository.NewRepository(redisConfig)
+	if err != nil {
+		log.Fatalf("Failed to initialize repository: %v", err)
+	}
+
+	// Check if we're using a Redis repository, and if so, close it properly on exit
+	if redisRepo, ok := repo.(interface{ Close() error }); ok {
+		defer func() {
+			if err := redisRepo.Close(); err != nil {
+				log.Printf("Error closing Redis connection: %v", err)
+			}
+		}()
+	}
 
 	// Initialize the service layer
 	meetingService := service.NewMeetingService(repo)

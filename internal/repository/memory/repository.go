@@ -8,11 +8,7 @@ import (
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
-	"github.com/navikt/zrooms/internal/repository"
 )
-
-// Ensure Repository implements the repository.Repository interface
-var _ repository.Repository = (*Repository)(nil)
 
 // ErrNotFound is returned when a requested entity is not found
 var ErrNotFound = errors.New("entity not found")
@@ -27,7 +23,7 @@ type MeetingState struct {
 	ParticipantIDs map[string]struct{} // Store only participant IDs
 }
 
-// Repository implements the repository.Repository interface with in-memory storage
+// Repository implements the repository interface with in-memory storage
 type Repository struct {
 	meetingStates map[string]*MeetingState // Stores meeting state data
 	mu            sync.RWMutex
