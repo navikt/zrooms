@@ -1,0 +1,46 @@
+{{define "content"}}
+<section>
+    <h2>Meeting Status</h2>
+    
+    <div class="meeting-list">
+        {{if .Meetings}}
+            <table>
+                <thead>
+                    <tr>
+                        <th>Room Name</th>
+                        <th>Meeting ID</th>
+                        <th>Topic</th>
+                        <th>Status</th>
+                        <th class="center">Participants</th>
+                        <th>Started At</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Meetings}}
+                    <tr>
+                        <td>{{.Room.Name}}</td>
+                        <td>{{.Meeting.ID}}</td>
+                        <td>{{.Meeting.Topic}}</td>
+                        <td>
+                            {{if eq .Status "in_progress"}}
+                                <span style="color: var(--success-color);">In Progress</span>
+                            {{else if eq .Status "scheduled"}}
+                                <span style="color: var(--warning-color);">Scheduled</span>
+                            {{else}}
+                                <span>{{.Status}}</span>
+                            {{end}}
+                        </td>
+                        <td class="center">{{.ParticipantCount}}</td>
+                        <td>{{if .StartedAt}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+        {{else}}
+            <div class="no-meetings">
+                <p>No active meetings found</p>
+            </div>
+        {{end}}
+    </div>
+</section>
+{{end}}

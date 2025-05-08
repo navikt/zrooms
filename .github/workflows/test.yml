@@ -1,0 +1,19 @@
+name: Run tests & build images
+on:
+  push:
+    #branches-ignore:
+    #  - main
+    paths-ignore:
+      - '**.md'
+jobs:
+  build:
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+      - run: go test ./...
+      - run: docker build .

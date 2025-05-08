@@ -1,0 +1,40 @@
+apiVersion: nais.io/v1alpha1
+kind: Application
+metadata:
+  labels:
+    team: appsec
+  name: zrooms
+  namespace: appsec
+  annotations:
+    texas.nais.io/enabled: "true"
+spec:
+  image: "{{ image }}"
+  port: 8080
+  azure:
+    application:
+      enabled: true
+    sidecar:
+      enabled: true
+      autoLogin: true
+      autoLoginIgnorePaths:
+        - /oauth
+  replicas:
+    min: 2
+    max: 2
+    cpuThresholdPercentage: 90
+  resources:
+    limits:
+      memory: "32Mi"
+    requests:
+      cpu: "10m"
+      memory: "16Mi"
+  liveness:
+    initialDelay: 10
+    path: isalive
+  readiness:
+    initialDelay: 10
+    path: isready
+  envFrom:
+    - secret: zrooms
+  ingresses:
+    - https://zrooms.nav.no
