@@ -25,6 +25,8 @@ type ZoomTokenResponse struct {
 //
 // Required query parameters:
 // - code: The authorization code provided by Zoom
+//
+// Optional query parameters:
 // - state: A state token to prevent CSRF attacks
 //
 // Required environment variables:
@@ -36,11 +38,16 @@ func OAuthRedirectHandler(w http.ResponseWriter, r *http.Request) {
 	code := r.URL.Query().Get("code")
 	state := r.URL.Query().Get("state")
 
-	// Validate parameters
-	if code == "" || state == "" {
-		http.Error(w, "Missing required parameters", http.StatusBadRequest)
-		log.Printf("OAuth error: Missing required parameters. code=%s, state=%s", code, state)
+	// Validate code parameter - state is optional when coming directly from Zoom
+	if code == "" {
+		http.Error(w, "Missing required code parameter", http.StatusBadRequest)
+		log.Printf("OAuth error: Missing required code parameter")
 		return
+	}
+
+	// Log if state is missing (for security awareness)
+	if state == "" {
+		log.Printf("Warning: OAuth callback received without state parameter. This may indicate a CSRF risk.")
 	}
 
 	// Log the received OAuth callback

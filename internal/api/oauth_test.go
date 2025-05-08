@@ -30,7 +30,7 @@ func TestOAuthRedirectHandler(t *testing.T) {
 		expectSuccess  bool
 	}{
 		{
-			name: "Successful OAuth Callback",
+			name: "Successful OAuth Callback With State",
 			queryParams: map[string]string{
 				"code":  "some_auth_code",
 				"state": "some_state_token",
@@ -39,17 +39,17 @@ func TestOAuthRedirectHandler(t *testing.T) {
 			expectSuccess:  true,
 		},
 		{
+			name: "Successful OAuth Callback Without State",
+			queryParams: map[string]string{
+				"code": "some_auth_code",
+			},
+			expectedStatus: http.StatusOK,
+			expectSuccess:  true,
+		},
+		{
 			name: "Missing Authorization Code",
 			queryParams: map[string]string{
 				"state": "some_state_token",
-			},
-			expectedStatus: http.StatusBadRequest,
-			expectSuccess:  false,
-		},
-		{
-			name: "Missing State Token",
-			queryParams: map[string]string{
-				"code": "some_auth_code",
 			},
 			expectedStatus: http.StatusBadRequest,
 			expectSuccess:  false,
