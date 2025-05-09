@@ -59,17 +59,36 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Generate a client ID
 	clientID := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	// Store the client ID in the request context for the SSE library to use
-	r.Header.Set("clientID", clientID)
-
 	// Log the new connection
 	log.Printf("SSE client connected: %s", clientID)
 
-	// Create a channel to detect when the client disconnects
+	// The stream parameter is required by the r3labs/sse library
+	// Add it to the request if not already present
+	q := r.URL.Query()
+	if !q.Has("stream") {
+		// Default to the meetings stream
+		q.Set("stream", "meetings")
+		r.URL.RawQuery = q.Encode()
+	}
+
+	// Create a channel for detecting client disconnects
 	disconnected := make(chan bool)
 
-	// Send initial data to the client
+	// Send initial connection and data events in a separate goroutine
+	// to avoid blocking the main connection handling
 	go func() {
+		// Short delay to ensure SSE connection is established
+		time.Sleep(100 * time.Millisecond)
+
+		// Send connected event
+		connectData, _ := json.Marshal(map[string]string{"id": clientID})
+		connectEvent := &sse.Event{
+			Event: []byte("connected"),
+			Data:  connectData,
+		}
+		sm.server.Publish("meetings", connectEvent)
+
+		// Get and send initial meeting data
 		meetings, err := sm.meetingService.GetAllMeetings()
 		if err != nil {
 			log.Printf("Error getting meeting data for new SSE client %s: %v", clientID, err)
@@ -82,24 +101,11 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		event := &sse.Event{
+		updateEvent := &sse.Event{
 			Event: []byte("update"),
 			Data:  data,
 		}
-
-		// Wait a brief moment for the connection to establish
-		time.Sleep(100 * time.Millisecond)
-
-		// Publish to the meetings stream
-		sm.server.Publish("meetings", event)
-
-		// Also send a connected event to the client
-		connectData, _ := json.Marshal(map[string]string{"id": clientID})
-		connectEvent := &sse.Event{
-			Event: []byte("connected"),
-			Data:  connectData,
-		}
-		sm.server.Publish("meetings", connectEvent)
+		sm.server.Publish("meetings", updateEvent)
 	}()
 
 	// Handle the SSE connection with the third-party library
@@ -107,8 +113,6 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// When ServeHTTP returns, the client has disconnected
 	log.Printf("SSE client disconnected: %s", clientID)
-
-	// Signal that the client disconnected
 	close(disconnected)
 }
 
