@@ -14,6 +14,8 @@
         .status { margin-top: 10px; font-weight: bold; }
         .log { margin-top: 20px; background: #333; color: #fff; padding: 10px; border-radius: 4px; max-height: 300px; overflow: auto; }
         .payload { margin-top: 10px; padding: 10px; background: #e9f7ef; border-radius: 4px; }
+        .input-group { margin-top: 15px; }
+        .input-group input { width: 80%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
     </style>
 </head>
 <body>
@@ -21,7 +23,13 @@
         <h1>Zrooms SSE Test</h1>
         
         <div class="card">
-            <h2>SSE Connection Status</h2>
+            <h2>SSE Connection Settings</h2>
+            <div class="input-group">
+                <label for="server-url">Server URL:</label>
+                <input type="text" id="server-url" value="http://localhost:8080" />
+            </div>
+            <p class="hint">When running locally, use http://localhost:8080. For production, use the full URL like https://zrooms.nav.no</p>
+            
             <button id="connect-btn" class="btn">Connect to SSE</button>
             <button id="disconnect-btn" class="btn" style="background: #f44336;">Disconnect</button>
             <button id="test-event-btn" class="btn" style="background: #2196F3;">Simulate Test Event</button>
@@ -53,12 +61,20 @@ data: [{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01
         let textBuffer = '';
         
         // DOM elements
+        const serverUrlInput = document.getElementById('server-url');
         const connectBtn = document.getElementById('connect-btn');
         const disconnectBtn = document.getElementById('disconnect-btn');
         const testEventBtn = document.getElementById('test-event-btn');
         const statusEl = document.getElementById('connection-status');
         const eventsContainer = document.getElementById('events-container');
         const debugLog = document.getElementById('debug-log');
+        
+        // Set default server URL based on current location if loaded via HTTP
+        if (window.location.protocol.startsWith('http')) {
+            // Extract origin from current location
+            const origin = window.location.origin;
+            serverUrlInput.value = origin;
+        }
         
         // Log function
         function log(message, isError = false) {
@@ -71,7 +87,7 @@ data: [{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01
             debugLog.scrollTop = debugLog.scrollHeight;
         }
         
-        // Process SSE text chunks (same logic as in our app.js)
+        // Process SSE text chunks
         function processEventStream(text) {
             log(`Processing event stream chunk: ${text.length} bytes`);
             
@@ -135,11 +151,32 @@ data: [{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01
             }
         }
         
+        // Get the base server URL
+        function getServerUrl() {
+            let url = serverUrlInput.value.trim();
+            
+            // Ensure URL doesn't end with a slash
+            if (url.endsWith('/')) {
+                url = url.slice(0, -1);
+            }
+            
+            // Ensure URL starts with http:// or https://
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'http://' + url;
+            }
+            
+            return url;
+        }
+        
         // Custom SSE connection function
         async function connectSSE() {
             // Reset UI
             statusEl.textContent = 'Connecting...';
             statusEl.style.color = '#f39c12';
+            
+            if (abortController) {
+                abortController.abort();
+            }
             
             // Create a new abort controller
             abortController = new AbortController();
@@ -148,55 +185,194 @@ data: [{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01
             textBuffer = '';
             
             try {
-                log('Initiating SSE connection...');
+                // Get the server URL from input
+                const serverUrl = getServerUrl();
+                log(`Initiating SSE connection to ${serverUrl}/events...`);
                 
-                // Start a fetch request
-                const response = await fetch(`/events?t=${Date.now()}`, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'text/event-stream',
-                        'Cache-Control': 'no-cache'
-                    },
-                    cache: 'no-store',
-                    signal: signal
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! Status: ${response.status}`);
-                }
-                
-                // Get the reader to process the stream
-                const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                
-                log('SSE connection established');
-                statusEl.textContent = 'Connected';
-                statusEl.style.color = '#2ecc71';
-                
-                // Process the stream
-                while (true) {
-                    const { value, done } = await reader.read();
+                // Try using native EventSource first
+                try {
+                    log('Attempting to connect using native EventSource...');
                     
-                    if (done) {
-                        log('SSE stream complete');
-                        break;
+                    // Close any existing EventSource
+                    if (window.eventSource) {
+                        window.eventSource.close();
+                        window.eventSource = null;
                     }
                     
-                    // Decode the chunk and add it to our buffer
-                    const chunk = decoder.decode(value, { stream: true });
-                    textBuffer += chunk;
+                    // Create URL with timestamp to prevent caching
+                    const sseUrl = `${serverUrl}/events?t=${Date.now()}`;
                     
-                    // Process complete events
-                    if (textBuffer.includes('\n\n')) {
-                        processEventStream(textBuffer);
-                        
-                        // Keep only the incomplete part
-                        const lastIndex = textBuffer.lastIndexOf('\n\n');
-                        if (lastIndex !== -1) {
-                            textBuffer = textBuffer.substring(lastIndex + 2);
+                    // Create a new EventSource
+                    const eventSource = new EventSource(sseUrl);
+                    window.eventSource = eventSource;
+                    
+                    log(`EventSource connecting to: ${sseUrl}`);
+                    
+                    // Handle EventSource events
+                    eventSource.addEventListener('open', function() {
+                        log('EventSource connection opened');
+                        statusEl.textContent = 'Connected (EventSource)';
+                        statusEl.style.color = '#2ecc71';
+                    });
+                    
+                    eventSource.addEventListener('connected', function(event) {
+                        try {
+                            const parsedData = JSON.parse(event.data);
+                            log(`Connected event received. Client ID: ${parsedData.id}`);
+                            
+                            const eventEl = document.createElement('div');
+                            eventEl.className = 'card';
+                            eventEl.innerHTML = `
+                                <h3>Event: connected</h3>
+                                <pre>${event.data}</pre>
+                                <div>Received at: ${new Date().toLocaleTimeString()}</div>
+                            `;
+                            eventsContainer.prepend(eventEl);
+                        } catch (e) {
+                            log(`Error parsing connected event: ${e.message}`, true);
                         }
-                    }
+                    });
+                    
+                    eventSource.addEventListener('update', function(event) {
+                        log('Update event received');
+                        try {
+                            const meetings = JSON.parse(event.data);
+                            log(`Successfully parsed ${meetings.length} meetings from update event`);
+                            
+                            // Display the event
+                            const eventEl = document.createElement('div');
+                            eventEl.className = 'card';
+                            eventEl.innerHTML = `
+                                <h3>Event: update</h3>
+                                <pre>${event.data}</pre>
+                                <div>Received at: ${new Date().toLocaleTimeString()}</div>
+                            `;
+                            eventsContainer.prepend(eventEl);
+                            
+                            // Validate meeting data
+                            if (meetings[0] && meetings[0].id === '96722590573') {
+                                log('✅ Event contains the expected meeting ID: 96722590573');
+                                
+                                if (meetings[0].topic && meetings[0].topic.includes('AppSec')) {
+                                    log('✅ Event contains the expected meeting topic: AppSec & Friends');
+                                }
+                            }
+                        } catch (e) {
+                            log(`Error parsing update event: ${e.message}`, true);
+                        }
+                    });
+                    
+                    eventSource.addEventListener('error', function(error) {
+                        log('EventSource error occurred', true);
+                        console.error('EventSource error:', error);
+                        eventSource.close();
+                        window.eventSource = null;
+                        
+                        // Only attempt fetch fallback if this wasn't a manual disconnect
+                        if (abortController) {
+                            log('Falling back to fetch-based approach...');
+                            useFetchFallback();
+                        }
+                    });
+                    
+                    // Don't proceed to fetch fallback if EventSource worked
+                    return;
+                    
+                } catch (e) {
+                    log(`EventSource failed: ${e.message}. Falling back to fetch.`, true);
+                    // Continue with fetch fallback
                 }
+                
+                // Fetch-based fallback approach
+                function useFetchFallback() {
+                    log('Using fetch-based SSE approach');
+                    
+                    // Create URL with timestamp to prevent caching
+                    const sseUrl = `${serverUrl}/events?t=${Date.now()}`;
+                    log(`Fetch connecting to: ${sseUrl}`);
+                    
+                    fetch(sseUrl, {
+                        method: 'GET',
+                        headers: {
+                            'Accept': 'text/event-stream',
+                            'Cache-Control': 'no-cache'
+                        },
+                        credentials: 'same-origin', 
+                        cache: 'no-store',
+                        signal: signal
+                    })
+                    .then(response => {
+                        if (!response.ok) {
+                            throw new Error(`HTTP error! Status: ${response.status}`);
+                        }
+                        
+                        log('SSE fetch connection established');
+                        statusEl.textContent = 'Connected (Fetch)';
+                        statusEl.style.color = '#2ecc71';
+                        
+                        // Get the reader to process the stream
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        
+                        // Process the stream
+                        function readStream() {
+                            reader.read().then(({ value, done }) => {
+                                if (done) {
+                                    log('SSE stream complete');
+                                    return;
+                                }
+                                
+                                // Decode the chunk and add it to our buffer
+                                const chunk = decoder.decode(value, { stream: true });
+                                textBuffer += chunk;
+                                
+                                // Process complete events
+                                if (textBuffer.includes('\n\n')) {
+                                    processEventStream(textBuffer);
+                                    
+                                    // Keep only the incomplete part
+                                    const lastIndex = textBuffer.lastIndexOf('\n\n');
+                                    if (lastIndex !== -1) {
+                                        textBuffer = textBuffer.substring(lastIndex + 2);
+                                    }
+                                }
+                                
+                                // Continue reading
+                                readStream();
+                            }).catch(error => {
+                                if (error.name !== 'AbortError') {
+                                    log(`Error reading SSE stream: ${error.message}`, true);
+                                    statusEl.textContent = 'Connection Failed';
+                                    statusEl.style.color = '#e74c3c';
+                                }
+                            });
+                        }
+                        
+                        // Start reading
+                        readStream();
+                    })
+                    .catch(error => {
+                        if (error.name !== 'AbortError') {
+                            log(`SSE connection error: ${error.message}`, true);
+                            statusEl.textContent = 'Connection Failed';
+                            statusEl.style.color = '#e74c3c';
+                            
+                            // Add specific troubleshooting advice
+                            log(`
+Troubleshooting tips:
+1. Check if the server is running at ${serverUrl}
+2. Verify the /events endpoint is accessible
+3. Check browser console for CORS errors
+4. Make sure SSE is properly implemented on the server`, true);
+                        } else {
+                            log('Connection aborted by user');
+                        }
+                    });
+                }
+                
+                // Try the fetch fallback
+                useFetchFallback();
+                
             } catch (error) {
                 if (error.name !== 'AbortError') {
                     log(`SSE connection error: ${error.message}`, true);
@@ -210,14 +386,19 @@ data: [{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01
         
         // Disconnect from SSE
         function disconnectSSE() {
+            if (window.eventSource) {
+                window.eventSource.close();
+                window.eventSource = null;
+            }
+            
             if (abortController) {
                 abortController.abort();
                 abortController = null;
-                
-                statusEl.textContent = 'Disconnected';
-                statusEl.style.color = '#7f8c8d';
-                log('Disconnected from SSE');
             }
+            
+            statusEl.textContent = 'Disconnected';
+            statusEl.style.color = '#7f8c8d';
+            log('Disconnected from SSE');
         }
         
         // Simulate the test event

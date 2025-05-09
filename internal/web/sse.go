@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
+	"github.com/r3labs/sse/v2"
 )
 
 // SSEClient represents a connected client receiving server-sent events
@@ -23,101 +24,92 @@ type SSEManager struct {
 	clients        map[string]*SSEClient
 	clientsMutex   sync.RWMutex
 	meetingService MeetingServicer
+	server         *sse.Server
 }
 
 // NewSSEManager creates a new server-sent events manager
 func NewSSEManager(meetingService MeetingServicer) *SSEManager {
+	// Create a new SSE server
+	server := sse.New()
+
+	// Configure the server
+	server.AutoReplay = false       // Don't replay missed events
+	server.CreateStream("meetings") // Create a named stream for meetings
+
 	return &SSEManager{
 		clients:        make(map[string]*SSEClient),
 		meetingService: meetingService,
+		server:         server,
 	}
 }
 
 // ServeHTTP implements the http.Handler interface for SSE connections
 func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Set standard SSE headers
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-
-	// CORS headers to match standard practices
+	// Set CORS headers to make SSE work in various environments
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 
-	// Ensure proxies don't buffer the response
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	// Check if streaming is supported
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+	// Handle CORS preflight
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	// Flush headers immediately to establish connection
-	flusher.Flush()
-
-	// Create a new client
+	// Generate a client ID
 	clientID := fmt.Sprintf("%d", time.Now().UnixNano())
-	client := &SSEClient{
-		id:        clientID,
-		channel:   make(chan []byte, 10),
-		closeChan: make(chan struct{}),
-	}
 
-	// Register client
-	sm.clientsMutex.Lock()
-	sm.clients[clientID] = client
-	sm.clientsMutex.Unlock()
+	// Store the client ID in the request context for the SSE library to use
+	r.Header.Set("clientID", clientID)
 
-	// Clean up on disconnect
-	defer func() {
-		sm.clientsMutex.Lock()
-		delete(sm.clients, clientID)
-		sm.clientsMutex.Unlock()
-		close(client.channel)
-		log.Printf("SSE client disconnected: %s", clientID)
-	}()
-
-	// Send initial data
-	sm.sendMeetingDataToClient(client)
-
-	// Notify client that connection is established
-	fmt.Fprintf(w, "event: connected\ndata: {\"id\":\"%s\"}\n\n", clientID)
-	flusher.Flush()
-
+	// Log the new connection
 	log.Printf("SSE client connected: %s", clientID)
 
-	// Keep connection alive with periodic pings
-	pingTicker := time.NewTicker(15 * time.Second)
-	defer pingTicker.Stop()
+	// Create a channel to detect when the client disconnects
+	disconnected := make(chan bool)
 
-	// Monitor the connection
-	for {
-		select {
-		case <-r.Context().Done():
-			// Client disconnected
+	// Send initial data to the client
+	go func() {
+		meetings, err := sm.meetingService.GetAllMeetings()
+		if err != nil {
+			log.Printf("Error getting meeting data for new SSE client %s: %v", clientID, err)
 			return
-		case <-client.closeChan:
-			// Client is being closed
-			return
-		case data := <-client.channel:
-			// Send event to client
-			_, err := fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
-			if err != nil {
-				log.Printf("Error writing to SSE stream: %v", err)
-				return
-			}
-			flusher.Flush()
-		case <-pingTicker.C:
-			// Send ping to keep connection alive
-			_, err := fmt.Fprintf(w, ": ping\n\n")
-			if err != nil {
-				log.Printf("Error sending ping: %v", err)
-				return
-			}
-			flusher.Flush()
 		}
-	}
+
+		data, err := json.Marshal(meetings)
+		if err != nil {
+			log.Printf("Error marshaling meeting data for SSE client %s: %v", clientID, err)
+			return
+		}
+
+		event := &sse.Event{
+			Event: []byte("update"),
+			Data:  data,
+		}
+
+		// Wait a brief moment for the connection to establish
+		time.Sleep(100 * time.Millisecond)
+
+		// Publish to the meetings stream
+		sm.server.Publish("meetings", event)
+
+		// Also send a connected event to the client
+		connectData, _ := json.Marshal(map[string]string{"id": clientID})
+		connectEvent := &sse.Event{
+			Event: []byte("connected"),
+			Data:  connectData,
+		}
+		sm.server.Publish("meetings", connectEvent)
+	}()
+
+	// Handle the SSE connection with the third-party library
+	sm.server.ServeHTTP(w, r)
+
+	// When ServeHTTP returns, the client has disconnected
+	log.Printf("SSE client disconnected: %s", clientID)
+
+	// Signal that the client disconnected
+	close(disconnected)
 }
 
 // NotifyMeetingUpdate sends meeting updates to all connected clients
@@ -134,34 +126,13 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 		return
 	}
 
-	sm.clientsMutex.RLock()
-	defer sm.clientsMutex.RUnlock()
-
-	for _, client := range sm.clients {
-		// Non-blocking send to client channel
-		select {
-		case client.channel <- data:
-			// Successfully sent
-		default:
-			// Channel buffer full, log a warning
-			log.Printf("SSE client channel full, skipping update for client %s", client.id)
-		}
-	}
-}
-
-// Send meeting data to a specific client
-func (sm *SSEManager) sendMeetingDataToClient(client *SSEClient) {
-	meetings, err := sm.meetingService.GetAllMeetings()
-	if err != nil {
-		log.Printf("Error getting meeting data for SSE: %v", err)
-		return
+	// Create an SSE event
+	event := &sse.Event{
+		Event: []byte("update"),
+		Data:  data,
 	}
 
-	data, err := json.Marshal(meetings)
-	if err != nil {
-		log.Printf("Error marshaling meeting data for SSE: %v", err)
-		return
-	}
-
-	client.channel <- data
+	// Publish the event to all clients
+	sm.server.Publish("meetings", event)
+	log.Printf("Published meeting update event to SSE clients")
 }
