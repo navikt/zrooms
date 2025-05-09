@@ -38,51 +38,82 @@ function setupSSE() {
     document.body.appendChild(flashElem);
     
     // Initialize SSE connection
-    const evtSource = new EventSource('/events');
+    let evtSource;
     
-    // Connected event
-    evtSource.addEventListener('connected', function(event) {
-        const data = JSON.parse(event.data);
-        console.log('SSE connection established, client ID:', data.id);
-        statusElem.textContent = 'Live updates: Connected';
-    });
-    
-    // Update event
-    evtSource.addEventListener('update', function(event) {
-        // Parse meeting data
-        const meetings = JSON.parse(event.data);
+    try {
+        evtSource = new EventSource('/events');
+        console.log('SSE connection initialized');
         
-        // Update the table with new data
-        updateMeetingsTable(meetings);
+        // Connected event
+        evtSource.addEventListener('connected', function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                console.log('SSE connection established, client ID:', data.id);
+                statusElem.textContent = 'Live updates: Connected';
+                statusElem.className = 'sse-status connected';
+            } catch (e) {
+                console.error('Error parsing connected event data:', e);
+            }
+        });
         
-        // Update the last updated timestamp
-        const now = new Date();
-        const timeString = now.toLocaleTimeString();
-        const lastUpdatedElem = document.getElementById('last-updated');
-        if (lastUpdatedElem) {
-            lastUpdatedElem.textContent = timeString;
-        }
+        // Update event
+        evtSource.addEventListener('update', function(event) {
+            try {
+                // Parse meeting data
+                const meetings = JSON.parse(event.data);
+                
+                // Update the table with new data
+                updateMeetingsTable(meetings);
+                
+                // Update the last updated timestamp
+                const now = new Date();
+                const timeString = now.toLocaleTimeString();
+                const lastUpdatedElem = document.getElementById('last-updated');
+                if (lastUpdatedElem) {
+                    lastUpdatedElem.textContent = timeString;
+                }
+                
+                // Show a flash effect
+                showUpdateFlash();
+            } catch (e) {
+                console.error('Error handling update event:', e);
+            }
+        });
         
-        // Show a flash effect
-        showUpdateFlash();
-    });
-    
-    // Error handling
-    evtSource.onerror = function(error) {
-        console.error('SSE error:', error);
-        statusElem.textContent = 'Live updates: Disconnected';
-        statusElem.className = 'sse-status disconnected';
+        // Open event handler to confirm connection is established
+        evtSource.addEventListener('open', function() {
+            console.log('SSE connection open');
+        });
         
-        // Try to reconnect after a short delay
-        setTimeout(function() {
-            evtSource.close();
-            setupSSE();
-        }, 5000);
-    };
+        // Error handling
+        evtSource.onerror = function(error) {
+            console.error('SSE error:', error);
+            statusElem.textContent = 'Live updates: Disconnected';
+            statusElem.className = 'sse-status disconnected';
+            
+            // Try to reconnect after a short delay
+            setTimeout(function() {
+                if (evtSource) {
+                    evtSource.close();
+                }
+                setupSSE();
+            }, 5000);
+        };
+        
+    } catch (e) {
+        console.error('Failed to initialize SSE:', e);
+        statusElem.textContent = 'Live updates: Failed';
+        statusElem.className = 'sse-status error';
+        // Fall back to refresh
+        setupRefreshCounter();
+        return;
+    }
     
     // Clean up on page unload
     window.addEventListener('beforeunload', function() {
-        evtSource.close();
+        if (evtSource) {
+            evtSource.close();
+        }
     });
 }
 
