@@ -143,8 +143,8 @@ func TestWebhookEventProcessing(t *testing.T) {
 		// Process the event
 		participant := event.ProcessParticipantJoined()
 
-		// Verify the processed participant
-		assert.Equal(t, "user789", participant.ID)
+		// Verify the processed participant - now using ID instead of UserID
+		assert.Equal(t, "part789", participant.ID)
 		assert.Equal(t, "Jane Doe", participant.Name)
 		assert.Equal(t, "jane@example.com", participant.Email)
 		assert.WithinDuration(t, time.Now(), participant.JoinTime, 2*time.Second)
@@ -178,8 +178,8 @@ func TestWebhookEventProcessing(t *testing.T) {
 		// Process the event
 		participant := event.ProcessParticipantLeft()
 
-		// Verify the processed participant
-		assert.Equal(t, "user789", participant.ID)
+		// Verify the processed participant - now using ID instead of UserID
+		assert.Equal(t, "part789", participant.ID)
 		assert.Equal(t, "Jane Doe", participant.Name)
 		assert.Equal(t, "jane@example.com", participant.Email)
 		assert.WithinDuration(t, time.Now(), participant.LeaveTime, 2*time.Second)

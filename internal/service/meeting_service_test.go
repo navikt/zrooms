@@ -129,7 +129,6 @@ func TestMeetingService_UpdateCallbacks(t *testing.T) {
 	// Create repository and service
 	repo := memory.NewRepository()
 	meetingService := service.NewMeetingService(repo)
-	ctx := context.Background()
 
 	// Create a test meeting
 	meeting := &models.Meeting{
