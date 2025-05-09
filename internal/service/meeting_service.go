@@ -169,15 +169,83 @@ func (s *MeetingService) UpdateParticipantCount(meetingID string) error {
 
 // NotifyMeetingStarted handles notifications when a meeting starts
 func (s *MeetingService) NotifyMeetingStarted(meeting *models.Meeting) {
-	// We don't need to update the meeting here since it was already saved in the repository
-	// by the webhook handler, just notify listeners about the change
+	// Ensure the meeting has status Started
+	meeting.Status = models.MeetingStatusStarted
+
+	// Set meeting start time if not already set
+	if meeting.StartTime.IsZero() {
+		meeting.StartTime = time.Now()
+	}
+
+	// Get all participants in the meeting
+	ctx := context.Background()
+
+	// Clear all participants to ensure count is reset to 0 at the beginning of the meeting
+	// This is done by getting all participant IDs and removing them one by one
+	meetingFromDB, err := s.repo.GetMeeting(ctx, meeting.ID)
+	if err == nil && meetingFromDB != nil {
+		// Get participant count first
+		count, err := s.repo.CountParticipantsInMeeting(ctx, meeting.ID)
+		if err == nil && count > 0 {
+			log.Printf("Resetting %d participants for started meeting %s", count, meeting.ID)
+
+			// Clear all participants from the meeting
+			for _, participant := range meetingFromDB.Participants {
+				err := s.repo.RemoveParticipantFromMeeting(ctx, meeting.ID, participant.ID)
+				if err != nil {
+					log.Printf("Error removing participant %s from started meeting %s: %v", participant.ID, meeting.ID, err)
+				}
+			}
+		}
+	}
+
+	// Update the meeting in the repository to save its started state
+	if err := s.repo.SaveMeeting(ctx, meeting); err != nil {
+		log.Printf("Error saving started meeting state: %v", err)
+	}
+
+	// Notify all registered callbacks about the meeting starting
 	s.notifyUpdate(meeting)
 }
 
 // NotifyMeetingEnded handles notifications when a meeting ends
 func (s *MeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
-	// We don't need to update the meeting here since it was already saved in the repository
-	// by the webhook handler, just notify listeners about the change
+	// Ensure the meeting has status Ended
+	meeting.Status = models.MeetingStatusEnded
+
+	// Set meeting end time if not already set
+	if meeting.EndTime.IsZero() {
+		meeting.EndTime = time.Now()
+	}
+
+	// Get all participants in the meeting
+	ctx := context.Background()
+
+	// Clear all participants to ensure count is reset to 0
+	// This is done by getting all participant IDs and removing them one by one
+	meetingFromDB, err := s.repo.GetMeeting(ctx, meeting.ID)
+	if err == nil && meetingFromDB != nil {
+		// Get participant count first
+		count, err := s.repo.CountParticipantsInMeeting(ctx, meeting.ID)
+		if err == nil && count > 0 {
+			log.Printf("Resetting %d participants for ended meeting %s", count, meeting.ID)
+
+			// Clear all participants from the meeting
+			for _, participant := range meetingFromDB.Participants {
+				err := s.repo.RemoveParticipantFromMeeting(ctx, meeting.ID, participant.ID)
+				if err != nil {
+					log.Printf("Error removing participant %s from ended meeting %s: %v", participant.ID, meeting.ID, err)
+				}
+			}
+		}
+	}
+
+	// Update the meeting in the repository to save its ended state
+	if err := s.repo.SaveMeeting(ctx, meeting); err != nil {
+		log.Printf("Error saving ended meeting state: %v", err)
+	}
+
+	// Notify all registered callbacks about the meeting ending
 	s.notifyUpdate(meeting)
 }
 
