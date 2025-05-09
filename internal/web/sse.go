@@ -35,29 +35,32 @@ func NewSSEManager(meetingService MeetingServicer) *SSEManager {
 
 // ServeHTTP implements the http.Handler interface for SSE connections
 func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// Set required headers for SSE
+	// Set standard SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+
+	// CORS headers to match standard practices
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	// Disable GZIP compression which can cause issues with SSE
-	w.Header().Set("Content-Encoding", "identity")
-	// Add X-Accel-Buffering header for proxies like Nginx
+
+	// Ensure proxies don't buffer the response
 	w.Header().Set("X-Accel-Buffering", "no")
 
-	// Flush headers to establish SSE connection
+	// Check if streaming is supported
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
+
+	// Flush headers immediately to establish connection
 	flusher.Flush()
 
 	// Create a new client
 	clientID := fmt.Sprintf("%d", time.Now().UnixNano())
 	client := &SSEClient{
 		id:        clientID,
-		channel:   make(chan []byte, 10), // Buffer up to 10 messages
+		channel:   make(chan []byte, 10),
 		closeChan: make(chan struct{}),
 	}
 
@@ -78,13 +81,13 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Send initial data
 	sm.sendMeetingDataToClient(client)
 
-	// Notify client that connection is established - follow the SSE spec strictly
+	// Notify client that connection is established
 	fmt.Fprintf(w, "event: connected\ndata: {\"id\":\"%s\"}\n\n", clientID)
 	flusher.Flush()
 
 	log.Printf("SSE client connected: %s", clientID)
 
-	// Keep connection alive with more frequent pings (15 seconds instead of 30)
+	// Keep connection alive with periodic pings
 	pingTicker := time.NewTicker(15 * time.Second)
 	defer pingTicker.Stop()
 
@@ -98,18 +101,18 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Client is being closed
 			return
 		case data := <-client.channel:
-			// Send event to client with proper error handling
-			_, writeErr := fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
-			if writeErr != nil {
-				log.Printf("Error writing to SSE stream for client %s: %v", clientID, writeErr)
+			// Send event to client
+			_, err := fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
+			if err != nil {
+				log.Printf("Error writing to SSE stream: %v", err)
 				return
 			}
 			flusher.Flush()
 		case <-pingTicker.C:
 			// Send ping to keep connection alive
-			_, writeErr := fmt.Fprintf(w, ": ping\n\n")
-			if writeErr != nil {
-				log.Printf("Error sending ping to SSE stream for client %s: %v", clientID, writeErr)
+			_, err := fmt.Fprintf(w, ": ping\n\n")
+			if err != nil {
+				log.Printf("Error sending ping: %v", err)
 				return
 			}
 			flusher.Flush()
