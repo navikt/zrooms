@@ -213,6 +213,38 @@ func (h *WebhookHandler) verifyZoomWebhookSignature(r *http.Request) bool {
 	return hmac.Equal([]byte(expectedSignature), []byte(receivedSignature))
 }
 
+// clearMeetingParticipants removes all participants from a meeting
+// Returns the number of participants cleared
+func (h *WebhookHandler) clearMeetingParticipants(ctx context.Context, meetingID string) int {
+	// Check if there are any participants to clear
+	count, err := h.repo.CountParticipantsInMeeting(ctx, meetingID)
+	if err != nil || count == 0 {
+		return 0
+	}
+
+	// Get the meeting to access participant IDs
+	meeting, err := h.repo.GetMeeting(ctx, meetingID)
+	if err != nil || meeting == nil {
+		log.Printf("Error getting meeting %s to clear participants: %v", meetingID, err)
+		return 0
+	}
+
+	// Remove each participant
+	cleared := 0
+	for _, participant := range meeting.Participants {
+		if err := h.repo.RemoveParticipantFromMeeting(ctx, meetingID, participant.ID); err != nil {
+			log.Printf("Error removing participant %s from meeting %s: %v", participant.ID, meetingID, err)
+		} else {
+			cleared++
+		}
+	}
+
+	if cleared > 0 {
+		log.Printf("Cleared %d participants from meeting %s", cleared, meetingID)
+	}
+	return cleared
+}
+
 // handleMeetingStarted processes a meeting.started event
 func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models.WebhookEvent) {
 	meeting := event.ProcessMeetingStarted()
@@ -235,9 +267,13 @@ func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models
 		meeting.Topic = payload.Object.Topic
 	}
 
+	// Save the meeting first to ensure it exists in the repository
 	if err := h.repo.SaveMeeting(ctx, meeting); err != nil {
 		log.Printf("Error saving meeting: %v", err)
 	}
+
+	// Clear all participants when a meeting starts
+	h.clearMeetingParticipants(ctx, meeting.ID)
 
 	// Notify meeting service about the started meeting
 	if h.meetingService != nil {
@@ -272,6 +308,9 @@ func (h *WebhookHandler) handleMeetingEnded(ctx context.Context, event *models.W
 			}
 		}
 	}
+
+	// Clear all participants when a meeting ends
+	h.clearMeetingParticipants(ctx, meeting.ID)
 
 	log.Printf("Meeting ended: ID=%s", meeting.ID)
 	if err := h.repo.SaveMeeting(ctx, meeting); err != nil {

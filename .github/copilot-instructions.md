@@ -73,6 +73,7 @@ zrooms/
 4. Handle errors explicitly
 5. Use dependency injection for better testability
 6. Keep functions small and focused on a single responsibility
+7. Avoid code duplication
 
 ### Test Conventions
 
