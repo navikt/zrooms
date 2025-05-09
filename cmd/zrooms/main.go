@@ -38,14 +38,19 @@ func main() {
 	// Initialize the service layer
 	meetingService := service.NewMeetingService(repo)
 
-	// Set up API routes with repository
-	mux := api.SetupRoutes(repo)
-
 	// Set up web UI routes
 	webHandler, err := web.NewHandler(meetingService, "./internal/web/templates", 30) // 30-second refresh rate
 	if err != nil {
 		log.Fatalf("Failed to initialize web handler: %v", err)
 	}
+
+	// Register the SSE update callback with the meeting service
+	meetingService.RegisterUpdateCallback(webHandler.NotifyMeetingUpdate)
+
+	// Set up API routes with repository and meeting service
+	mux := api.SetupRoutes(repo, meetingService)
+
+	// Set up web UI routes
 	webHandler.SetupRoutes(mux)
 
 	// Get port from environment variable or use default

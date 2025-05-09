@@ -111,7 +111,7 @@ func (e *WebhookEvent) ProcessParticipantJoined() *Participant {
 	}
 
 	return &Participant{
-		ID:       payload.Object.Participant.UserID,
+		ID:       payload.Object.Participant.ID, // Use ID instead of UserID
 		Name:     payload.Object.Participant.Name,
 		Email:    payload.Object.Participant.Email,
 		JoinTime: time.Now(),
@@ -130,7 +130,7 @@ func (e *WebhookEvent) ProcessParticipantLeft() *Participant {
 	}
 
 	return &Participant{
-		ID:        payload.Object.Participant.UserID,
+		ID:        payload.Object.Participant.ID, // Use ID instead of UserID
 		Name:      payload.Object.Participant.Name,
 		Email:     payload.Object.Participant.Email,
 		LeaveTime: time.Now(),

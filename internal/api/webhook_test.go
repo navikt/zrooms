@@ -16,13 +16,63 @@ import (
 	"github.com/navikt/zrooms/internal/api"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository/memory"
+	"github.com/navikt/zrooms/internal/service"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
+
+// MockMeetingService is a mock implementation of the MeetingServicer interface for testing
+type MockMeetingService struct {
+	mock.Mock
+}
+
+func (m *MockMeetingService) GetAllMeetings() ([]*models.Meeting, error) {
+	args := m.Called()
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).([]*models.Meeting), args.Error(1)
+}
+
+func (m *MockMeetingService) GetMeeting(id string) (*models.Meeting, error) {
+	args := m.Called(id)
+	if args.Get(0) == nil {
+		return nil, args.Error(1)
+	}
+	return args.Get(0).(*models.Meeting), args.Error(1)
+}
+
+func (m *MockMeetingService) UpdateMeeting(meeting *models.Meeting) error {
+	args := m.Called(meeting)
+	return args.Error(0)
+}
+
+func (m *MockMeetingService) DeleteMeeting(id string) error {
+	args := m.Called(id)
+	return args.Error(0)
+}
+
+func (m *MockMeetingService) NotifyMeetingStarted(meeting *models.Meeting) {
+	m.Called(meeting)
+}
+
+func (m *MockMeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
+	m.Called(meeting)
+}
+
+func (m *MockMeetingService) NotifyParticipantJoined(meetingID string, participantID string) {
+	m.Called(meetingID, participantID)
+}
+
+func (m *MockMeetingService) NotifyParticipantLeft(meetingID string, participantID string) {
+	m.Called(meetingID, participantID)
+}
 
 // TestWebhookSignatureValidation tests the webhook signature validation functionality
 func TestWebhookSignatureValidation(t *testing.T) {
-	// Initialize repository
+	// Initialize repository and meeting service
 	repo := memory.NewRepository()
+	mockService := new(MockMeetingService)
 
 	// Sample test cases for webhook signature validation
 	tests := []struct {
@@ -83,7 +133,7 @@ func TestWebhookSignatureValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a test WebhookHandler with the test secret token
-			handler := api.NewWebhookHandlerWithSecret(repo, tt.secretToken)
+			handler := api.NewWebhookHandlerWithSecret(repo, mockService, tt.secretToken)
 
 			// Create a request with the webhook payload
 			req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(tt.webhookPayload))
@@ -112,6 +162,8 @@ func TestWebhookSignatureValidation(t *testing.T) {
 func TestWebhookHandler(t *testing.T) {
 	// Initialize repository
 	repo := memory.NewRepository()
+	// Initialize meeting service
+	meetingService := service.NewMeetingService(repo)
 	ctx := context.Background()
 
 	// Sample meeting for "meeting.ended" test
@@ -142,7 +194,7 @@ func TestWebhookHandler(t *testing.T) {
 						"host_id": "host123",
 						"topic": "Test Meeting",
 						"type": 2,
-						"start_time": "2025-05-08T15:00:00Z",
+						"start_time": "2023-05-08T15:00:00Z",
 						"duration": 60,
 						"timezone": "UTC"
 					}
@@ -263,7 +315,7 @@ func TestWebhookHandler(t *testing.T) {
 			rr := httptest.NewRecorder()
 
 			// Create the handler
-			handler := api.NewWebhookHandler(repo)
+			handler := api.NewWebhookHandler(repo, meetingService)
 
 			// Process the request
 			handler.ServeHTTP(rr, req)
@@ -280,6 +332,8 @@ func TestWebhookHandler(t *testing.T) {
 func TestWebhookURLValidation(t *testing.T) {
 	// Initialize repository
 	repo := memory.NewRepository()
+	// Initialize mock meeting service
+	mockService := new(MockMeetingService)
 
 	// Sample validation request from Zoom documentation
 	validationPayload := `{
@@ -311,7 +365,7 @@ func TestWebhookURLValidation(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Create the handler with the test secret token
-	handler := api.NewWebhookHandlerWithSecret(repo, secretToken)
+	handler := api.NewWebhookHandlerWithSecret(repo, mockService, secretToken)
 
 	// Process the request
 	handler.ServeHTTP(rr, req)
@@ -334,4 +388,140 @@ func TestWebhookURLValidation(t *testing.T) {
 	h.Write([]byte("qgg8vlvZRS6UYooatFL8Aw"))
 	expectedToken := hex.EncodeToString(h.Sum(nil))
 	assert.Equal(t, expectedToken, response["encryptedToken"], "encryptedToken should be correctly calculated")
+}
+
+// TestWebhookHandlerNotifiesService tests that the webhook handler calls the appropriate service methods
+func TestWebhookHandlerNotifiesService(t *testing.T) {
+	// Initialize repository
+	repo := memory.NewRepository()
+	// Initialize mock meeting service
+	mockService := new(MockMeetingService)
+	ctx := context.Background()
+
+	// Sample meeting
+	meetingID := "123456789"
+	existingMeeting := &models.Meeting{
+		ID:        meetingID,
+		Topic:     "Test Meeting",
+		Status:    models.MeetingStatusStarted,
+		StartTime: time.Now(),
+	}
+	_ = repo.SaveMeeting(ctx, existingMeeting)
+
+	// Setup mock expectations
+	mockService.On("NotifyMeetingStarted", mock.Anything).Return()
+	mockService.On("NotifyMeetingEnded", mock.Anything).Return()
+	mockService.On("NotifyParticipantJoined", meetingID, "part123").Return()
+	mockService.On("NotifyParticipantLeft", meetingID, "part123").Return()
+
+	// Test cases for notifications
+	tests := []struct {
+		name           string
+		webhookPayload string
+		verify         func(t *testing.T, mockService *MockMeetingService)
+	}{
+		{
+			name: "Meeting Started Event Notification",
+			webhookPayload: `{
+				"event": "meeting.started",
+				"payload": {
+					"account_id": "abc123",
+					"object": {
+						"uuid": "uuid123",
+						"id": "987654321",
+						"host_id": "host123",
+						"topic": "Test Meeting",
+						"type": 2,
+						"start_time": "2025-05-08T15:00:00Z"
+					}
+				}
+			}`,
+			verify: func(t *testing.T, mockService *MockMeetingService) {
+				mockService.AssertCalled(t, "NotifyMeetingStarted", mock.Anything)
+			},
+		},
+		{
+			name: "Meeting Ended Event Notification",
+			webhookPayload: `{
+				"event": "meeting.ended",
+				"payload": {
+					"account_id": "abc123",
+					"object": {
+						"uuid": "uuid123",
+						"id": "123456789",
+						"host_id": "host123",
+						"topic": "Test Meeting"
+					}
+				}
+			}`,
+			verify: func(t *testing.T, mockService *MockMeetingService) {
+				mockService.AssertCalled(t, "NotifyMeetingEnded", mock.Anything)
+			},
+		},
+		{
+			name: "Participant Joined Event Notification",
+			webhookPayload: `{
+				"event": "meeting.participant_joined",
+				"payload": {
+					"account_id": "abc123",
+					"object": {
+						"uuid": "uuid123",
+						"id": "123456789",
+						"host_id": "host123",
+						"participant": {
+							"id": "part123",
+							"user_id": "user123",
+							"user_name": "Test User"
+						}
+					}
+				}
+			}`,
+			verify: func(t *testing.T, mockService *MockMeetingService) {
+				mockService.AssertCalled(t, "NotifyParticipantJoined", meetingID, "part123")
+			},
+		},
+		{
+			name: "Participant Left Event Notification",
+			webhookPayload: `{
+				"event": "meeting.participant_left",
+				"payload": {
+					"account_id": "abc123",
+					"object": {
+						"uuid": "uuid123",
+						"id": "123456789",
+						"host_id": "host123",
+						"participant": {
+							"id": "part123",
+							"user_id": "user123",
+							"user_name": "Test User"
+						}
+					}
+				}
+			}`,
+			verify: func(t *testing.T, mockService *MockMeetingService) {
+				mockService.AssertCalled(t, "NotifyParticipantLeft", meetingID, "part123")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a request with the webhook payload
+			req := httptest.NewRequest("POST", "/webhook", bytes.NewBufferString(tt.webhookPayload))
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Zoom-Signature", "mock_signature") // Skip validation for this test
+
+			// Create a response recorder
+			rr := httptest.NewRecorder()
+
+			// Create the handler with the mock service
+			handler := api.NewWebhookHandler(repo, mockService)
+
+			// Process the request
+			handler.ServeHTTP(rr, req)
+
+			// Verify service was called correctly
+			tt.verify(t, mockService)
+		})
+	}
 }

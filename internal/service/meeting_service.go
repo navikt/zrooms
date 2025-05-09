@@ -2,21 +2,39 @@ package service
 
 import (
 	"context"
+	"log"
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
 )
 
+// MeetingUpdateCallback is a function type for meeting update callbacks
+type MeetingUpdateCallback func(*models.Meeting)
+
 // MeetingService provides business logic for working with meetings
 type MeetingService struct {
-	repo repository.Repository
+	repo            repository.Repository
+	updateCallbacks []MeetingUpdateCallback
 }
 
 // NewMeetingService creates a new MeetingService with the given repository
 func NewMeetingService(repo repository.Repository) *MeetingService {
 	return &MeetingService{
-		repo: repo,
+		repo:            repo,
+		updateCallbacks: make([]MeetingUpdateCallback, 0),
+	}
+}
+
+// RegisterUpdateCallback registers a callback function to be called when meeting data changes
+func (s *MeetingService) RegisterUpdateCallback(callback MeetingUpdateCallback) {
+	s.updateCallbacks = append(s.updateCallbacks, callback)
+}
+
+// notifyUpdate calls all registered callbacks with the updated meeting
+func (s *MeetingService) notifyUpdate(meeting *models.Meeting) {
+	for _, callback := range s.updateCallbacks {
+		callback(meeting)
 	}
 }
 
@@ -76,7 +94,115 @@ func (s *MeetingService) GetMeetingStatusData(ctx context.Context, includeEnded 
 			ParticipantCount: participantCount,
 			StartedAt:        meeting.StartTime,
 		})
+
+		// Notify update callbacks
+		s.notifyUpdate(meeting)
 	}
 
 	return result, nil
+}
+
+// GetAllMeetings returns all meetings
+func (s *MeetingService) GetAllMeetings() ([]*models.Meeting, error) {
+	return s.repo.ListAllMeetings(context.Background())
+}
+
+// GetMeeting returns a meeting by ID
+func (s *MeetingService) GetMeeting(id string) (*models.Meeting, error) {
+	return s.repo.GetMeeting(context.Background(), id)
+}
+
+// CreateMeeting creates a new meeting
+func (s *MeetingService) CreateMeeting(meeting *models.Meeting) error {
+	err := s.repo.SaveMeeting(context.Background(), meeting)
+	if err != nil {
+		return err
+	}
+
+	// Notify all registered callbacks about the new meeting
+	s.notifyUpdate(meeting)
+	return nil
+}
+
+// UpdateMeeting updates an existing meeting
+func (s *MeetingService) UpdateMeeting(meeting *models.Meeting) error {
+	err := s.repo.SaveMeeting(context.Background(), meeting)
+	if err != nil {
+		return err
+	}
+
+	// Notify all registered callbacks about the update
+	s.notifyUpdate(meeting)
+	return nil
+}
+
+// DeleteMeeting deletes a meeting by ID
+func (s *MeetingService) DeleteMeeting(id string) error {
+	// Get the meeting first so we can send notification
+	meeting, err := s.repo.GetMeeting(context.Background(), id)
+	if err != nil {
+		return err
+	}
+
+	err = s.repo.DeleteMeeting(context.Background(), id)
+	if err != nil {
+		return err
+	}
+
+	// Notify all registered callbacks about the deletion
+	s.notifyUpdate(meeting)
+	return nil
+}
+
+// UpdateParticipantCount updates a meeting's participant count and notifies listeners
+func (s *MeetingService) UpdateParticipantCount(meetingID string) error {
+	meeting, err := s.repo.GetMeeting(context.Background(), meetingID)
+	if err != nil {
+		return err
+	}
+
+	// No need to update the meeting object here, just notify that it changed
+	// The participant count is calculated dynamically in GetMeetingStatusData
+	s.notifyUpdate(meeting)
+	return nil
+}
+
+// NotifyMeetingStarted handles notifications when a meeting starts
+func (s *MeetingService) NotifyMeetingStarted(meeting *models.Meeting) {
+	// We don't need to update the meeting here since it was already saved in the repository
+	// by the webhook handler, just notify listeners about the change
+	s.notifyUpdate(meeting)
+}
+
+// NotifyMeetingEnded handles notifications when a meeting ends
+func (s *MeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
+	// We don't need to update the meeting here since it was already saved in the repository
+	// by the webhook handler, just notify listeners about the change
+	s.notifyUpdate(meeting)
+}
+
+// NotifyParticipantJoined handles notifications when a participant joins a meeting
+func (s *MeetingService) NotifyParticipantJoined(meetingID string, participantID string) {
+	// Get the meeting first
+	meeting, err := s.repo.GetMeeting(context.Background(), meetingID)
+	if err != nil {
+		log.Printf("Error getting meeting for participant joined notification: %v", err)
+		return
+	}
+
+	// Notify about the change
+	s.notifyUpdate(meeting)
+}
+
+// NotifyParticipantLeft handles notifications when a participant leaves a meeting
+func (s *MeetingService) NotifyParticipantLeft(meetingID string, participantID string) {
+	// Get the meeting first
+	meeting, err := s.repo.GetMeeting(context.Background(), meetingID)
+	if err != nil {
+		log.Printf("Error getting meeting for participant left notification: %v", err)
+		return
+	}
+
+	// Notify about the change
+	s.notifyUpdate(meeting)
 }

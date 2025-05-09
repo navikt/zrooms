@@ -14,4 +14,6 @@ COPY --from=builder /bin/zrooms /app/zrooms
 COPY --from=builder /src/internal/web/templates /app/internal/web/templates
 COPY --from=builder /src/internal/web/static /app/internal/web/static
 
+ENV TZ="Europe/Oslo"
+
 ENTRYPOINT ["/app/zrooms"]

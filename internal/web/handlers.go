@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/service"
 )
 
@@ -16,6 +17,7 @@ type Handler struct {
 	meetingService *service.MeetingService
 	templates      *template.Template
 	refreshRate    int // in seconds
+	sseManager     *SSEManager
 }
 
 // NewHandler creates a new web UI handler
@@ -29,10 +31,14 @@ func NewHandler(meetingService *service.MeetingService, templatesDir string, ref
 		return nil, fmt.Errorf("failed to parse templates: %w", err)
 	}
 
+	// Create SSE manager
+	sseManager := NewSSEManager(meetingService)
+
 	return &Handler{
 		meetingService: meetingService,
 		templates:      tmpl,
 		refreshRate:    refreshRate,
+		sseManager:     sseManager,
 	}, nil
 }
 
@@ -49,6 +55,9 @@ func (h *Handler) SetupRoutes(mux *http.ServeMux) {
 	// Serve static files
 	fileServer := http.FileServer(http.Dir("./internal/web/static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
+
+	// Serve SSE endpoint
+	mux.Handle("/events", h.sseManager)
 
 	// Serve index page
 	mux.HandleFunc("/", h.handleIndex)
@@ -76,14 +85,17 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		LastUpdated string
 		CurrentYear int
 		RefreshRate int
+		UseSSE      bool
 	}{
 		Meetings:    meetings,
 		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear: time.Now().Year(),
 		RefreshRate: h.refreshRate,
+		UseSSE:      true, // Enable SSE in the template
 	}
 
-	// Set refresh header if auto-refresh is enabled
+	// We don't need the Refresh header when using SSE
+	// But we'll keep the refresh as a fallback mechanism
 	if h.refreshRate > 0 {
 		w.Header().Set("Refresh", fmt.Sprintf("%d", h.refreshRate))
 	}
@@ -94,4 +106,10 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Error rendering template: %v", err)
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)
 	}
+}
+
+// NotifyMeetingUpdate sends an update notification to all SSE clients
+// This should be called whenever a meeting is updated
+func (h *Handler) NotifyMeetingUpdate(meeting *models.Meeting) {
+	h.sseManager.NotifyMeetingUpdate(meeting)
 }

@@ -8,17 +8,20 @@ import (
 
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
+	"github.com/navikt/zrooms/internal/service"
 )
 
 // MeetingHandler handles HTTP requests for meeting management
 type MeetingHandler struct {
-	repo repository.Repository
+	repo           repository.Repository
+	meetingService *service.MeetingService
 }
 
-// NewMeetingHandler creates a new meeting handler with the given repository
-func NewMeetingHandler(repo repository.Repository) *MeetingHandler {
+// NewMeetingHandler creates a new meeting handler with the given repository and meeting service
+func NewMeetingHandler(repo repository.Repository, meetingService *service.MeetingService) *MeetingHandler {
 	return &MeetingHandler{
-		repo: repo,
+		repo:           repo,
+		meetingService: meetingService,
 	}
 }
 
@@ -71,8 +74,14 @@ func (h *MeetingHandler) createMeeting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save meeting to repository
-	err = h.repo.SaveMeeting(r.Context(), &meeting)
+	// Use meeting service to create the meeting if available
+	if h.meetingService != nil {
+		err = h.meetingService.CreateMeeting(&meeting)
+	} else {
+		// Fallback to directly using the repository
+		err = h.repo.SaveMeeting(r.Context(), &meeting)
+	}
+
 	if err != nil {
 		log.Printf("Error saving meeting: %v", err)
 		http.Error(w, "Error saving meeting", http.StatusInternalServerError)
@@ -86,7 +95,17 @@ func (h *MeetingHandler) createMeeting(w http.ResponseWriter, r *http.Request) {
 
 // listMeetings handles GET /api/meetings to list all active meetings
 func (h *MeetingHandler) listMeetings(w http.ResponseWriter, r *http.Request) {
-	meetings, err := h.repo.ListMeetings(r.Context())
+	var meetings []*models.Meeting
+	var err error
+
+	// Use meeting service to list meetings if available
+	if h.meetingService != nil {
+		meetings, err = h.meetingService.GetAllMeetings()
+	} else {
+		// Fallback to directly using the repository
+		meetings, err = h.repo.ListMeetings(r.Context())
+	}
+
 	if err != nil {
 		log.Printf("Error listing meetings: %v", err)
 		http.Error(w, "Error retrieving meetings", http.StatusInternalServerError)
@@ -98,7 +117,17 @@ func (h *MeetingHandler) listMeetings(w http.ResponseWriter, r *http.Request) {
 
 // getMeeting handles GET /api/meetings/{meetingID} to get a specific meeting
 func (h *MeetingHandler) getMeeting(w http.ResponseWriter, r *http.Request, meetingID string) {
-	meeting, err := h.repo.GetMeeting(r.Context(), meetingID)
+	var meeting *models.Meeting
+	var err error
+
+	// Use meeting service to get the meeting if available
+	if h.meetingService != nil {
+		meeting, err = h.meetingService.GetMeeting(meetingID)
+	} else {
+		// Fallback to directly using the repository
+		meeting, err = h.repo.GetMeeting(r.Context(), meetingID)
+	}
+
 	if err != nil {
 		log.Printf("Error getting meeting %s: %v", meetingID, err)
 		http.Error(w, "Meeting not found", http.StatusNotFound)
@@ -111,15 +140,28 @@ func (h *MeetingHandler) getMeeting(w http.ResponseWriter, r *http.Request, meet
 // deleteMeeting handles DELETE /api/meetings/{meetingID} to delete a meeting
 func (h *MeetingHandler) deleteMeeting(w http.ResponseWriter, r *http.Request, meetingID string) {
 	// Check if the meeting exists first
-	_, err := h.repo.GetMeeting(r.Context(), meetingID)
+	var err error
+
+	if h.meetingService != nil {
+		_, err = h.meetingService.GetMeeting(meetingID)
+	} else {
+		_, err = h.repo.GetMeeting(r.Context(), meetingID)
+	}
+
 	if err != nil {
 		log.Printf("Error getting meeting %s: %v", meetingID, err)
 		http.Error(w, "Meeting not found", http.StatusNotFound)
 		return
 	}
 
-	// Delete the meeting
-	err = h.repo.DeleteMeeting(r.Context(), meetingID)
+	// Delete the meeting using the service if available
+	if h.meetingService != nil {
+		err = h.meetingService.DeleteMeeting(meetingID)
+	} else {
+		// Fallback to directly using the repository
+		err = h.repo.DeleteMeeting(r.Context(), meetingID)
+	}
+
 	if err != nil {
 		log.Printf("Error deleting meeting: %v", err)
 		http.Error(w, "Error deleting meeting", http.StatusInternalServerError)

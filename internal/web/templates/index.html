@@ -7,19 +7,18 @@
             <table>
                 <thead>
                     <tr>
-                        <th>Meeting ID</th>
                         <th>Topic</th>
                         <th>Status</th>
                         <th class="center">Participants</th>
                         <th>Started At</th>
+                        <th>Room</th>
                     </tr>
                 </thead>
                 <tbody>
                     {{range .Meetings}}
                     <tr>
-                        <td>{{.Meeting.ID}}</td>
                         <td>{{.Meeting.Topic}}</td>
-                        <td>
+                        <td class="{{if eq .Status "in_progress"}}meeting-active{{else if eq .Status "ended"}}meeting-ended{{end}}">
                             {{if eq .Status "in_progress"}}
                                 <span style="color: var(--success-color);">In Progress</span>
                             {{else if eq .Status "scheduled"}}
@@ -32,13 +31,14 @@
                         </td>
                         <td class="center">{{.ParticipantCount}}</td>
                         <td>{{if .StartedAt}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
+                        <td>{{.Meeting.RoomName}}</td>
                     </tr>
                     {{end}}
                 </tbody>
             </table>
         {{else}}
             <div class="no-meetings">
-                <p>No meetings found</p>
+                <p>No active meetings</p>
             </div>
         {{end}}
     </div>

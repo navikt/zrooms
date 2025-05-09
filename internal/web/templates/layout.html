@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zrooms - Zoom Room Status</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    {{if gt .RefreshRate 0}}
+    <meta http-equiv="refresh" content="{{.RefreshRate}}">
+    {{end}}
+    <!-- Pass SSE flag to JavaScript -->
+    <script>
+        const useSSE = {{.UseSSE}};
+    </script>
 </head>
 <body>
     <header>
@@ -20,7 +27,7 @@
     
     <footer>
         <div class="container">
-            <p>&copy; {{.CurrentYear}} Zrooms - Last updated: <span id="last-update">{{.LastUpdated}}</span></p>
+            <p>&copy; {{.CurrentYear}} Zrooms - Last updated: <span id="last-updated">{{.LastUpdated}}</span></p>
         </div>
     </footer>
 

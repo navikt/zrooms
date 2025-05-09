@@ -20,25 +20,28 @@ import (
 
 // WebhookHandler processes webhook events from Zoom
 type WebhookHandler struct {
-	repo        repository.Repository
-	secretToken string
+	repo           repository.Repository
+	meetingService MeetingServicer
+	secretToken    string
 }
 
-// NewWebhookHandler creates a new webhook handler with the given repository
-func NewWebhookHandler(repo repository.Repository) *WebhookHandler {
+// NewWebhookHandler creates a new webhook handler with the given repository and meeting service
+func NewWebhookHandler(repo repository.Repository, meetingService MeetingServicer) *WebhookHandler {
 	zoomConfig := config.GetZoomConfig()
 	return &WebhookHandler{
-		repo:        repo,
-		secretToken: zoomConfig.WebhookSecretToken,
+		repo:           repo,
+		meetingService: meetingService,
+		secretToken:    zoomConfig.WebhookSecretToken,
 	}
 }
 
 // NewWebhookHandlerWithSecret creates a webhook handler with the given repository and secret token
 // This method is primarily used for testing webhook signature validation
-func NewWebhookHandlerWithSecret(repo repository.Repository, secretToken string) *WebhookHandler {
+func NewWebhookHandlerWithSecret(repo repository.Repository, meetingService MeetingServicer, secretToken string) *WebhookHandler {
 	return &WebhookHandler{
-		repo:        repo,
-		secretToken: secretToken,
+		repo:           repo,
+		meetingService: meetingService,
+		secretToken:    secretToken,
 	}
 }
 
@@ -235,6 +238,11 @@ func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models
 	if err := h.repo.SaveMeeting(ctx, meeting); err != nil {
 		log.Printf("Error saving meeting: %v", err)
 	}
+
+	// Notify meeting service about the started meeting
+	if h.meetingService != nil {
+		h.meetingService.NotifyMeetingStarted(meeting)
+	}
 }
 
 // handleMeetingEnded processes a meeting.ended event
@@ -269,6 +277,11 @@ func (h *WebhookHandler) handleMeetingEnded(ctx context.Context, event *models.W
 	if err := h.repo.SaveMeeting(ctx, meeting); err != nil {
 		log.Printf("Error updating meeting: %v", err)
 	}
+
+	// Notify meeting service about the ended meeting
+	if h.meetingService != nil {
+		h.meetingService.NotifyMeetingEnded(meeting)
+	}
 }
 
 // handleParticipantJoined processes a meeting.participant_joined event
@@ -294,6 +307,11 @@ func (h *WebhookHandler) handleParticipantJoined(ctx context.Context, event *mod
 	if err := h.repo.AddParticipantToMeeting(ctx, meetingID, participantID); err != nil {
 		log.Printf("Error adding participant: %v", err)
 	}
+
+	// Notify meeting service about the participant joined
+	if h.meetingService != nil {
+		h.meetingService.NotifyParticipantJoined(meetingID, participantID)
+	}
 }
 
 // handleParticipantLeft processes a meeting.participant_left event
@@ -317,5 +335,10 @@ func (h *WebhookHandler) handleParticipantLeft(ctx context.Context, event *model
 	log.Printf("Participant left: MeetingID=%s, ParticipantID=%s", meetingID, participantID)
 	if err := h.repo.RemoveParticipantFromMeeting(ctx, meetingID, participantID); err != nil {
 		log.Printf("Error removing participant: %v", err)
+	}
+
+	// Notify meeting service about the participant left
+	if h.meetingService != nil {
+		h.meetingService.NotifyParticipantLeft(meetingID, participantID)
 	}
 }
