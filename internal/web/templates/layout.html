@@ -8,8 +8,20 @@
     {{if gt .RefreshRate 0}}
     <meta http-equiv="refresh" content="{{.RefreshRate}}">
     {{end}}
-    <!-- Pass SSE flag to JavaScript -->
+    <!-- Include HTMX library first in the head -->
+    <script src="/static/js/lib/htmx.min.js"></script>
+    <!-- Initialize the SSE extension explicitly -->
     <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            if (typeof htmx !== 'undefined') {
+                htmx.defineExtension('sse', {
+                    onEvent: function(name, evt) {
+                        console.log('SSE event received:', name, evt);
+                        return true;
+                    }
+                });
+            }
+        });
         const useSSE = {{.UseSSE}};
     </script>
 </head>
@@ -31,8 +43,6 @@
         </div>
     </footer>
 
-    <!-- Include HTMX library -->
-    <script src="/static/js/lib/htmx.min.js"></script>
     <!-- Include our application JS -->
     <script src="/static/js/app.js"></script>
 </body>
