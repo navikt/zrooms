@@ -1,7 +1,6 @@
 package web
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -101,16 +100,10 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	flusher.Flush()
 
-	// Get and send initial meeting data
-	meetings, err := sm.meetingService.GetAllMeetings()
-	if err != nil {
-		log.Printf("Error getting meeting data for new SSE client %s: %v", clientID, err)
-		return
-	}
-
+	// For HTMX, trigger an immediate update to fetch the initial data
 	sse.Encode(w, sse.Event{
 		Event: "update",
-		Data:  meetings,
+		Data:  "/partial/meetings",
 	})
 	flusher.Flush()
 
@@ -121,22 +114,14 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // NotifyMeetingUpdate sends meeting updates to all connected clients
 func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
-	meetings, err := sm.meetingService.GetAllMeetings()
-	if err != nil {
-		log.Printf("Error getting meeting data for SSE update: %v", err)
-		return
-	}
-
 	// Log the event being published for debugging
-	data, _ := json.Marshal(meetings)
-	logData := string(data)
-	if len(logData) > 100 {
-		logData = logData[:100] + "..." // Truncate long payloads in logs
-	}
-	log.Printf("Publishing SSE update event: %s", logData)
+	log.Printf("Publishing SSE update event for meeting %s", meeting.ID)
 
 	// Generate a unique event ID based on current timestamp
 	eventID := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	// For HTMX compatibility, we need to render HTML instead of sending JSON
+	// This will be handled by calling the /partial/meetings endpoint
 
 	// Publish the event to all clients
 	sm.clientsMutex.RLock()
@@ -152,11 +137,12 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 			// Client is still connected
 		}
 
-		// Send the event
+		// Send the event - for HTMX compatibility, we just send the event name
+		// and let HTMX handle fetching the updated content
 		err := sse.Encode(client.responseWriter, sse.Event{
 			Id:    eventID,
 			Event: "update",
-			Data:  meetings,
+			Data:  "/partial/meetings", // HTMX will fetch this URL
 		})
 
 		if f, ok := client.responseWriter.(http.Flusher); ok {

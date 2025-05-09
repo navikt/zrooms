@@ -61,6 +61,9 @@ func (h *Handler) SetupRoutes(mux *http.ServeMux) {
 
 	// Serve index page
 	mux.HandleFunc("/", h.handleIndex)
+
+	// Add HTMX partial endpoints
+	mux.HandleFunc("/partial/meetings", h.HandlePartialMeetingList)
 }
 
 // handleIndex renders the main page with meeting status
@@ -105,6 +108,31 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Error rendering template: %v", err)
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+	}
+}
+
+// HandlePartialMeetingList renders just the meeting list table for HTMX updates
+func (h *Handler) HandlePartialMeetingList(w http.ResponseWriter, r *http.Request) {
+	// Get meeting data, including ended meetings
+	meetings, err := h.meetingService.GetMeetingStatusData(r.Context(), true)
+	if err != nil {
+		log.Printf("Error getting meeting data: %v", err)
+		http.Error(w, "Failed to get meeting data", http.StatusInternalServerError)
+		return
+	}
+
+	// Prepare view model
+	viewModel := struct {
+		Meetings []service.MeetingStatusData
+	}{
+		Meetings: meetings,
+	}
+
+	// Render only the meeting_list template part
+	err = h.templates.ExecuteTemplate(w, "meeting_list", viewModel)
+	if err != nil {
+		log.Printf("Error rendering template: %v", err)
+		http.Error(w, "Failed to render meeting list", http.StatusInternalServerError)
 	}
 }
 

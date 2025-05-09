@@ -2,43 +2,50 @@
 <section>
     <h2>Meeting Status</h2>
     
-    <div class="meeting-list">
-        {{if .Meetings}}
-            <table>
-                <thead>
-                    <tr>
-                        <th>Topic</th>
-                        <th>Status</th>
-                        <th class="center">Participants</th>
-                        <th>Started At</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {{range .Meetings}}
-                    <tr>
-                        <td>{{.Meeting.Topic}}</td>
-                        <td class="{{if eq .Status "in_progress"}}meeting-active{{else if eq .Status "ended"}}meeting-ended{{end}}">
-                            {{if eq .Status "in_progress"}}
-                                <span style="color: var(--success-color);">In Progress</span>
-                            {{else if eq .Status "scheduled"}}
-                                <span style="color: var(--warning-color);">Scheduled</span>
-                            {{else if eq .Status "ended"}}
-                                <span style="color: var(--ended-color);">Ended</span>
-                            {{else}}
-                                <span>{{.Status}}</span>
-                            {{end}}
-                        </td>
-                        <td class="center">{{.ParticipantCount}}</td>
-                        <td>{{if .StartedAt}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
-                    </tr>
-                    {{end}}
-                </tbody>
-            </table>
-        {{else}}
-            <div class="no-meetings">
-                <p>No active meetings</p>
-            </div>
-        {{end}}
+    <div id="meeting-list-container" class="meeting-list"
+         hx-ext="sse" 
+         sse-connect="/events"
+         sse-swap="update">
+        {{template "meeting_list" .}}
     </div>
 </section>
+{{end}}
+
+{{define "meeting_list"}}
+{{if .Meetings}}
+    <table>
+        <thead>
+            <tr>
+                <th>Topic</th>
+                <th>Status</th>
+                <th class="center">Participants</th>
+                <th>Started At</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Meetings}}
+            <tr>
+                <td>{{.Meeting.Topic}}</td>
+                <td class="{{if eq .Status "in_progress"}}meeting-active{{else if eq .Status "ended"}}meeting-ended{{end}}">
+                    {{if eq .Status "in_progress"}}
+                        <span style="color: var(--success-color);">In Progress</span>
+                    {{else if eq .Status "scheduled"}}
+                        <span style="color: var(--warning-color);">Scheduled</span>
+                    {{else if eq .Status "ended"}}
+                        <span style="color: var(--ended-color);">Ended</span>
+                    {{else}}
+                        <span>{{.Status}}</span>
+                    {{end}}
+                </td>
+                <td class="center">{{.ParticipantCount}}</td>
+                <td>{{if .StartedAt}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+{{else}}
+    <div class="no-meetings">
+        <p>No active meetings</p>
+    </div>
+{{end}}
 {{end}}

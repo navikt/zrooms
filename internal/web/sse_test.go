@@ -102,8 +102,9 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	meeting := CreateTestMeeting()
 	meetings := []*models.Meeting{meeting}
 
-	// Set up expectation for GetAllMeetings
-	mockService.On("GetAllMeetings").Return(meetings, nil)
+	// Set up expectation for GetAllMeetings - Note this is now optional with HTMX approach
+	// but keeping it for backward compatibility with tests
+	mockService.On("GetAllMeetings").Return(meetings, nil).Maybe()
 
 	// Create an SSE manager
 	sseManager := NewSSEManager(mockService)
@@ -143,13 +144,11 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	assert.Contains(t, responseBody, "event:connected")
 	assert.Contains(t, responseBody, "event:update")
 
-	// The data should include client ID
+	// The data should include client ID for the connected event
 	assert.Contains(t, responseBody, `data:{"id":`)
 
-	// Verify the meeting data is included in the response
-	// The meeting topic appears in escaped form in the JSON
-	assert.Contains(t, responseBody, meeting.ID)
-	assert.Contains(t, responseBody, "AppSec \\u0026 Friends") // & is escaped as \u0026 in JSON
+	// With HTMX implementation, the update event should point to the partial endpoint
+	assert.Contains(t, responseBody, `data:/partial/meetings`)
 
 	// Simulate client disconnect by cancelling the context
 	cancel()
@@ -157,8 +156,9 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	// Wait for ServeHTTP to complete
 	<-done
 
-	// Verify that GetAllMeetings was called
-	mockService.AssertExpectations(t)
+	// We no longer need to verify GetAllMeetings was called since
+	// our HTMX implementation uses a different approach
+	// mockService.AssertExpectations(t)
 }
 
 func TestNotifyMeetingUpdate(t *testing.T) {
@@ -167,10 +167,9 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 
 	// Create test meeting data
 	meeting := CreateTestMeeting()
-	meetings := []*models.Meeting{meeting}
 
-	// Set up expectation for GetAllMeetings
-	mockService.On("GetAllMeetings").Return(meetings, nil)
+	// In our HTMX implementation, we don't use GetAllMeetings anymore
+	// mockService.On("GetAllMeetings").Return(meetings, nil)
 
 	// Create an SSE manager
 	sseManager := NewSSEManager(mockService)
@@ -178,9 +177,10 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 	// Create a test client - this tests the manager's internal state only
 	// as we can't verify the output without a real connection
 	clientID := "test-client"
+	responseRecorder := httptest.NewRecorder()
 	testClient := &SSEClient{
 		id:             clientID,
-		responseWriter: httptest.NewRecorder(),
+		responseWriter: responseRecorder,
 		disconnected:   make(chan struct{}),
 	}
 
@@ -192,8 +192,13 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 	// Call NotifyMeetingUpdate
 	sseManager.NotifyMeetingUpdate(meeting)
 
-	// Verify that GetAllMeetings was called
-	mockService.AssertExpectations(t)
+	// Check that the client received the update event
+	responseBody := responseRecorder.Body.String()
+	assert.Contains(t, responseBody, "event:update")
+	assert.Contains(t, responseBody, "data:/partial/meetings")
+
+	// With the HTMX implementation, we don't call GetAllMeetings anymore
+	// mockService.AssertExpectations(t)
 }
 
 func TestIsEventStreamSupported(t *testing.T) {
