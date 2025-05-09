@@ -40,8 +40,8 @@
             <h2>Test Event Payload</h2>
             <p>This is the example event that will be simulated:</p>
             <div class="payload">
-                <pre>event: update
-data: [{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01-01T00:00:00Z","end_time":"2025-05-09T10:08:06.15140462+02:00","duration":0,"status":3,"host":{"id":"","name":"","email":"","join_time":"0001-01-01T00:00:00Z","leave_time":"0001-01-01T00:00:00Z"},"participants":[]}]</pre>
+                <pre>event:update
+data:[{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01-01T00:00:00Z","end_time":"2025-05-09T10:08:06.15140462+02:00","duration":0,"status":3,"host":{"id":"","name":"","email":"","join_time":"0001-01-01T00:00:00Z","leave_time":"0001-01-01T00:00:00Z"},"participants":[]}]</pre>
             </div>
         </div>
         
@@ -405,8 +405,8 @@ Troubleshooting tips:
         function simulateTestEvent() {
             log('Simulating test event...');
             
-            const testEvent = `event: update
-data: [{"id":"96722590573","topic":"AppSec \\u0026 Friends","start_time":"0001-01-01T00:00:00Z","end_time":"2025-05-09T10:08:06.15140462+02:00","duration":0,"status":3,"host":{"id":"","name":"","email":"","join_time":"0001-01-01T00:00:00Z","leave_time":"0001-01-01T00:00:00Z"},"participants":[]}]
+            const testEvent = `event:update
+data:[{"id":"96722590573","topic":"AppSec \\u0026 Friends","start_time":"0001-01-01T00:00:00Z","end_time":"2025-05-09T10:08:06.15140462+02:00","duration":0,"status":3,"host":{"id":"","name":"","email":"","join_time":"0001-01-01T00:00:00Z","leave_time":"0001-01-01T00:00:00Z"},"participants":[]}]
 `;
             
             // Process the event directly

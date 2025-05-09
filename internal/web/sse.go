@@ -8,15 +8,15 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gin-contrib/sse"
 	"github.com/navikt/zrooms/internal/models"
-	"github.com/r3labs/sse/v2"
 )
 
 // SSEClient represents a connected client receiving server-sent events
 type SSEClient struct {
-	id        string
-	channel   chan []byte
-	closeChan chan struct{}
+	id             string
+	responseWriter http.ResponseWriter
+	disconnected   chan struct{}
 }
 
 // SSEManager handles server-sent events to clients
@@ -24,22 +24,13 @@ type SSEManager struct {
 	clients        map[string]*SSEClient
 	clientsMutex   sync.RWMutex
 	meetingService MeetingServicer
-	server         *sse.Server
 }
 
 // NewSSEManager creates a new server-sent events manager
 func NewSSEManager(meetingService MeetingServicer) *SSEManager {
-	// Create a new SSE server
-	server := sse.New()
-
-	// Configure the server
-	server.AutoReplay = false       // Don't replay missed events
-	server.CreateStream("meetings") // Create a named stream for meetings
-
 	return &SSEManager{
 		clients:        make(map[string]*SSEClient),
 		meetingService: meetingService,
-		server:         server,
 	}
 }
 
@@ -56,63 +47,75 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Set required headers for SSE
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	// Check if client accepts SSE
+	if !isEventStreamSupported(r) {
+		http.Error(w, "This endpoint requires EventStream support", http.StatusNotAcceptable)
+		return
+	}
+
+	// Make sure the response writer supports flushing
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
 	// Generate a client ID
 	clientID := fmt.Sprintf("%d", time.Now().UnixNano())
 
 	// Log the new connection
 	log.Printf("SSE client connected: %s", clientID)
 
-	// The stream parameter is required by the r3labs/sse library
-	// Add it to the request if not already present
-	q := r.URL.Query()
-	if !q.Has("stream") {
-		// Default to the meetings stream
-		q.Set("stream", "meetings")
-		r.URL.RawQuery = q.Encode()
+	// Create a channel for detecting client disconnects
+	disconnected := make(chan struct{})
+
+	// Create a new client and register it
+	client := &SSEClient{
+		id:             clientID,
+		responseWriter: w,
+		disconnected:   disconnected,
 	}
 
-	// Create a channel for detecting client disconnects
-	disconnected := make(chan bool)
+	// Register the client
+	sm.clientsMutex.Lock()
+	sm.clients[clientID] = client
+	sm.clientsMutex.Unlock()
 
-	// Send initial connection and data events in a separate goroutine
-	// to avoid blocking the main connection handling
-	go func() {
-		// Short delay to ensure SSE connection is established
-		time.Sleep(100 * time.Millisecond)
-
-		// Send connected event
-		connectData, _ := json.Marshal(map[string]string{"id": clientID})
-		connectEvent := &sse.Event{
-			Event: []byte("connected"),
-			Data:  connectData,
-		}
-		sm.server.Publish("meetings", connectEvent)
-
-		// Get and send initial meeting data
-		meetings, err := sm.meetingService.GetAllMeetings()
-		if err != nil {
-			log.Printf("Error getting meeting data for new SSE client %s: %v", clientID, err)
-			return
-		}
-
-		data, err := json.Marshal(meetings)
-		if err != nil {
-			log.Printf("Error marshaling meeting data for SSE client %s: %v", clientID, err)
-			return
-		}
-
-		updateEvent := &sse.Event{
-			Event: []byte("update"),
-			Data:  data,
-		}
-		sm.server.Publish("meetings", updateEvent)
+	// Clean up client when disconnected
+	defer func() {
+		sm.clientsMutex.Lock()
+		delete(sm.clients, clientID)
+		sm.clientsMutex.Unlock()
+		log.Printf("SSE client disconnected: %s", clientID)
 	}()
 
-	// Handle the SSE connection with the third-party library
-	sm.server.ServeHTTP(w, r)
+	// Send initial connected event
+	sse.Encode(w, sse.Event{
+		Event: "connected",
+		Data:  map[string]string{"id": clientID},
+	})
+	flusher.Flush()
 
-	// When ServeHTTP returns, the client has disconnected
-	log.Printf("SSE client disconnected: %s", clientID)
+	// Get and send initial meeting data
+	meetings, err := sm.meetingService.GetAllMeetings()
+	if err != nil {
+		log.Printf("Error getting meeting data for new SSE client %s: %v", clientID, err)
+		return
+	}
+
+	sse.Encode(w, sse.Event{
+		Event: "update",
+		Data:  meetings,
+	})
+	flusher.Flush()
+
+	// Keep the connection open until the client disconnects
+	<-r.Context().Done()
 	close(disconnected)
 }
 
@@ -124,32 +127,52 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 		return
 	}
 
-	data, err := json.Marshal(meetings)
-	if err != nil {
-		log.Printf("Error marshaling meeting data for SSE: %v", err)
-		return
-	}
-
-	// Create an SSE event with proper format according to the SSE spec
-	event := &sse.Event{
-		// Event field must come first in SSE format
-		Event: []byte("update"),
-		
-		// Data contains the JSON payload
-		Data: data,
-		
-		// ID is optional, but if included should be set properly
-		// Using a timestamp as ID ensures uniqueness
-		ID: []byte(fmt.Sprintf("%d", time.Now().UnixNano())),
-	}
-
 	// Log the event being published for debugging
+	data, _ := json.Marshal(meetings)
 	logData := string(data)
 	if len(logData) > 100 {
 		logData = logData[:100] + "..." // Truncate long payloads in logs
 	}
 	log.Printf("Publishing SSE update event: %s", logData)
 
+	// Generate a unique event ID based on current timestamp
+	eventID := fmt.Sprintf("%d", time.Now().UnixNano())
+
 	// Publish the event to all clients
-	sm.server.Publish("meetings", event)
+	sm.clientsMutex.RLock()
+	defer sm.clientsMutex.RUnlock()
+
+	for id, client := range sm.clients {
+		// Check if client is still connected
+		select {
+		case <-client.disconnected:
+			// Client has disconnected but not been removed yet
+			continue
+		default:
+			// Client is still connected
+		}
+
+		// Send the event
+		err := sse.Encode(client.responseWriter, sse.Event{
+			Id:    eventID,
+			Event: "update",
+			Data:  meetings,
+		})
+
+		if f, ok := client.responseWriter.(http.Flusher); ok {
+			f.Flush()
+		}
+
+		if err != nil {
+			log.Printf("Error sending SSE event to client %s: %v", id, err)
+		}
+	}
+}
+
+// Helper function to check if the client accepts event streams
+func isEventStreamSupported(r *http.Request) bool {
+	accepts := r.Header.Get("Accept")
+	return accepts == "" || // Accept any content type
+		accepts == "*/*" || // Accept any content type
+		accepts == "text/event-stream" // Explicitly accept event streams
 }
