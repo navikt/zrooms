@@ -37,17 +37,21 @@ func NewSSEManager(meetingService MeetingServicer) *SSEManager {
 func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set required headers for SSE
 	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Cache-Control", "no-cache, no-transform")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Disable GZIP compression which can cause issues with SSE
+	w.Header().Set("Content-Encoding", "identity")
+	// Add X-Accel-Buffering header for proxies like Nginx
+	w.Header().Set("X-Accel-Buffering", "no")
 
 	// Flush headers to establish SSE connection
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	} else {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
+	flusher.Flush()
 
 	// Create a new client
 	clientID := fmt.Sprintf("%d", time.Now().UnixNano())
@@ -74,16 +78,14 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Send initial data
 	sm.sendMeetingDataToClient(client)
 
-	// Notify client that connection is established
+	// Notify client that connection is established - follow the SSE spec strictly
 	fmt.Fprintf(w, "event: connected\ndata: {\"id\":\"%s\"}\n\n", clientID)
-	if flusher, ok := w.(http.Flusher); ok {
-		flusher.Flush()
-	}
+	flusher.Flush()
 
 	log.Printf("SSE client connected: %s", clientID)
 
-	// Keep connection alive with periodic pings
-	pingTicker := time.NewTicker(30 * time.Second)
+	// Keep connection alive with more frequent pings (15 seconds instead of 30)
+	pingTicker := time.NewTicker(15 * time.Second)
 	defer pingTicker.Stop()
 
 	// Monitor the connection
@@ -96,17 +98,21 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			// Client is being closed
 			return
 		case data := <-client.channel:
-			// Send event to client
-			fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
-			if flusher, ok := w.(http.Flusher); ok {
-				flusher.Flush()
+			// Send event to client with proper error handling
+			_, writeErr := fmt.Fprintf(w, "event: update\ndata: %s\n\n", data)
+			if writeErr != nil {
+				log.Printf("Error writing to SSE stream for client %s: %v", clientID, writeErr)
+				return
 			}
+			flusher.Flush()
 		case <-pingTicker.C:
 			// Send ping to keep connection alive
-			fmt.Fprintf(w, ": ping\n\n")
-			if flusher, ok := w.(http.Flusher); ok {
-				flusher.Flush()
+			_, writeErr := fmt.Fprintf(w, ": ping\n\n")
+			if writeErr != nil {
+				log.Printf("Error sending ping to SSE stream for client %s: %v", clientID, writeErr)
+				return
 			}
+			flusher.Flush()
 		}
 	}
 }

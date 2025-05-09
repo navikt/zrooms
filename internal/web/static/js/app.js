@@ -37,77 +37,106 @@ function setupSSE() {
     flashElem.className = 'update-flash';
     document.body.appendChild(flashElem);
     
-    // Initialize SSE connection
-    let evtSource;
+    // Initialize SSE connection using XMLHttpRequest to force HTTP/1.1 protocol
+    let evtSource = null;
+    let connectionAttempts = 0;
+    const maxRetries = 5;
+    let retryTimeoutMs = 5000;
     
-    try {
-        evtSource = new EventSource('/events');
-        console.log('SSE connection initialized');
-        
-        // Connected event
-        evtSource.addEventListener('connected', function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                console.log('SSE connection established, client ID:', data.id);
-                statusElem.textContent = 'Live updates: Connected';
-                statusElem.className = 'sse-status connected';
-            } catch (e) {
-                console.error('Error parsing connected event data:', e);
+    function connectSSE() {
+        try {
+            if (evtSource) {
+                evtSource.close();
             }
-        });
-        
-        // Update event
-        evtSource.addEventListener('update', function(event) {
-            try {
-                // Parse meeting data
-                const meetings = JSON.parse(event.data);
-                
-                // Update the table with new data
-                updateMeetingsTable(meetings);
-                
-                // Update the last updated timestamp
-                const now = new Date();
-                const timeString = now.toLocaleTimeString();
-                const lastUpdatedElem = document.getElementById('last-updated');
-                if (lastUpdatedElem) {
-                    lastUpdatedElem.textContent = timeString;
-                }
-                
-                // Show a flash effect
-                showUpdateFlash();
-            } catch (e) {
-                console.error('Error handling update event:', e);
-            }
-        });
-        
-        // Open event handler to confirm connection is established
-        evtSource.addEventListener('open', function() {
-            console.log('SSE connection open');
-        });
-        
-        // Error handling
-        evtSource.onerror = function(error) {
-            console.error('SSE error:', error);
-            statusElem.textContent = 'Live updates: Disconnected';
-            statusElem.className = 'sse-status disconnected';
             
-            // Try to reconnect after a short delay
-            setTimeout(function() {
+            connectionAttempts++;
+            console.log(`SSE connection attempt ${connectionAttempts}`);
+            
+            // Create a new EventSource for SSE, forcing HTTP/1.1 protocol
+            // Note: The URL has a timestamp to avoid caching issues
+            const evtSourceUrl = `/events?t=${Date.now()}`;
+            evtSource = new EventSource(evtSourceUrl);
+            
+            // Connected event
+            evtSource.addEventListener('connected', function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    console.log('SSE connection established, client ID:', data.id);
+                    statusElem.textContent = 'Live updates: Connected';
+                    statusElem.className = 'sse-status connected';
+                    connectionAttempts = 0; // Reset connection attempts on success
+                    retryTimeoutMs = 5000; // Reset timeout on success
+                } catch (e) {
+                    console.error('Error parsing connected event data:', e);
+                }
+            });
+            
+            // Update event
+            evtSource.addEventListener('update', function(event) {
+                try {
+                    // Parse meeting data
+                    const meetings = JSON.parse(event.data);
+                    
+                    // Update the table with new data
+                    updateMeetingsTable(meetings);
+                    
+                    // Update the last updated timestamp
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString();
+                    const lastUpdatedElem = document.getElementById('last-updated');
+                    if (lastUpdatedElem) {
+                        lastUpdatedElem.textContent = timeString;
+                    }
+                    
+                    // Show a flash effect
+                    showUpdateFlash();
+                } catch (e) {
+                    console.error('Error handling update event:', e);
+                }
+            });
+            
+            // Open event handler to confirm connection is established
+            evtSource.addEventListener('open', function() {
+                console.log('SSE connection open');
+            });
+            
+            // Error handling
+            evtSource.onerror = function(error) {
+                console.error('SSE error:', error);
+                statusElem.textContent = 'Live updates: Disconnected';
+                statusElem.className = 'sse-status disconnected';
+                
+                // Close the current connection
                 if (evtSource) {
                     evtSource.close();
+                    evtSource = null;
                 }
-                setupSSE();
-            }, 5000);
-        };
-        
-    } catch (e) {
-        console.error('Failed to initialize SSE:', e);
-        statusElem.textContent = 'Live updates: Failed';
-        statusElem.className = 'sse-status error';
-        // Fall back to refresh
-        setupRefreshCounter();
-        return;
+                
+                // Implement exponential backoff for retries
+                if (connectionAttempts < maxRetries) {
+                    console.log(`Reconnecting in ${retryTimeoutMs/1000} seconds...`);
+                    setTimeout(connectSSE, retryTimeoutMs);
+                    retryTimeoutMs = Math.min(retryTimeoutMs * 1.5, 30000); // Exponential backoff up to 30 seconds
+                } else {
+                    console.log('Maximum SSE connection attempts reached, falling back to refresh');
+                    statusElem.textContent = 'Live updates: Failed';
+                    statusElem.className = 'sse-status error';
+                    setupRefreshCounter();
+                }
+            };
+            
+        } catch (e) {
+            console.error('Failed to initialize SSE:', e);
+            statusElem.textContent = 'Live updates: Failed';
+            statusElem.className = 'sse-status error';
+            
+            // Fall back to refresh if SSE initialization fails completely
+            setupRefreshCounter();
+        }
     }
+    
+    // Start initial connection
+    connectSSE();
     
     // Clean up on page unload
     window.addEventListener('beforeunload', function() {
