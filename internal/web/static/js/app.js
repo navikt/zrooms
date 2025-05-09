@@ -1,11 +1,11 @@
-// app.js - Client-side functionality for ZRooms
+// Simplified app.js - Client-side functionality for ZRooms with debug-friendly SSE
 
 document.addEventListener('DOMContentLoaded', function() {
     // Set up auto-refresh counter if SSE is not enabled
     if (!useSSE) {
         setupRefreshCounter();
     } else {
-        setupCustomSSE();
+        setupDebugFriendlySSE();
     }
     
     // Apply alternating row colors
@@ -15,304 +15,273 @@ document.addEventListener('DOMContentLoaded', function() {
     updateMeetingCountInTitle();
 });
 
-// Sets up a custom Server-Sent Events implementation using Fetch API
-// This approach avoids QUIC protocol issues in Chrome by forcing HTTP/1.1
-function setupCustomSSE() {
-    // Create status elements
+// Sets up a simplified, debug-friendly Server-Sent Events implementation
+function setupDebugFriendlySSE() {
+    // Create status elements for debugging
     const statusElem = document.createElement('div');
     statusElem.id = 'sse-status';
     statusElem.className = 'sse-status';
     statusElem.textContent = 'Connecting...';
     document.body.appendChild(statusElem);
     
+    const debugElem = document.createElement('div');
+    debugElem.id = 'sse-debug';
+    debugElem.style.position = 'fixed';
+    debugElem.style.bottom = '50px';
+    debugElem.style.right = '10px';
+    debugElem.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    debugElem.style.color = 'white';
+    debugElem.style.padding = '10px';
+    debugElem.style.borderRadius = '5px';
+    debugElem.style.maxWidth = '400px';
+    debugElem.style.maxHeight = '200px';
+    debugElem.style.overflow = 'auto';
+    debugElem.style.fontSize = '12px';
+    debugElem.style.fontFamily = 'monospace';
+    document.body.appendChild(debugElem);
+    
     const flashElem = document.createElement('div');
     flashElem.id = 'update-flash';
     flashElem.className = 'update-flash';
     document.body.appendChild(flashElem);
     
-    // Custom SSE implementation variables
-    let abortController = null;
-    let reconnectAttempt = 0;
-    let reconnectTimer = null;
-    const maxRetries = 5;
-    
-    // Process SSE text chunks
-    function processEventStream(text, lastEventId = '') {
-        // Split the text into individual event chunks
-        const eventChunks = text.split('\n\n');
-        let newLastEventId = lastEventId;
+    // Helper function to log debug messages
+    function logDebug(message) {
+        console.log(message);
+        const line = document.createElement('div');
+        line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+        debugElem.appendChild(line);
+        debugElem.scrollTop = debugElem.scrollHeight;
         
-        for (const chunk of eventChunks) {
-            if (!chunk.trim()) continue;
+        // Keep only last 20 lines
+        while (debugElem.childElementCount > 20) {
+            debugElem.removeChild(debugElem.firstChild);
+        }
+    }
+    
+    // Try simple fetch-based SSE first
+    function connectWithFetch() {
+        logDebug('Trying fetch-based SSE connection...');
+        statusElem.textContent = 'Connecting via Fetch...';
+        
+        const url = new URL('/events', window.location.href);
+        url.searchParams.set('t', Date.now().toString());
+        
+        logDebug(`Connecting to: ${url.toString()}`);
+        
+        fetch(url.toString(), {
+            method: 'GET',
+            headers: {
+                'Accept': 'text/event-stream',
+                'Cache-Control': 'no-cache'
+            },
+            cache: 'no-store'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             
-            const lines = chunk.split('\n');
-            let eventType = 'message';
-            let data = '';
-            let id = '';
+            logDebug('Fetch connection established');
+            statusElem.textContent = 'Connected via Fetch';
+            statusElem.className = 'sse-status connected';
             
-            for (const line of lines) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            
+            function readChunk() {
+                reader.read().then(({ value, done }) => {
+                    if (done) {
+                        logDebug('Stream complete');
+                        return;
+                    }
+                    
+                    // Process the chunk
+                    const chunk = decoder.decode(value, { stream: true });
+                    buffer += chunk;
+                    
+                    logDebug(`Received chunk: ${chunk.length} bytes`);
+                    
+                    // Process complete events
+                    if (buffer.includes('\n\n')) {
+                        processEvents(buffer);
+                        
+                        // Keep only the incomplete part
+                        const lastIndex = buffer.lastIndexOf('\n\n');
+                        if (lastIndex !== -1) {
+                            buffer = buffer.substring(lastIndex + 2);
+                        }
+                    }
+                    
+                    // Continue reading
+                    readChunk();
+                }).catch(error => {
+                    logDebug(`Error reading: ${error.message}`);
+                    statusElem.textContent = 'Disconnected (fetch error)';
+                    statusElem.className = 'sse-status disconnected';
+                    
+                    // Fallback to EventSource after a delay
+                    setTimeout(connectWithEventSource, 2000);
+                });
+            }
+            
+            // Start reading the stream
+            readChunk();
+        })
+        .catch(error => {
+            logDebug(`Fetch failed: ${error.message}`);
+            statusElem.textContent = 'Fetch connection failed';
+            statusElem.className = 'sse-status error';
+            
+            // Fallback to EventSource
+            setTimeout(connectWithEventSource, 1000);
+        });
+    }
+    
+    // Try with EventSource as fallback
+    function connectWithEventSource() {
+        logDebug('Trying EventSource connection...');
+        statusElem.textContent = 'Connecting via EventSource...';
+        
+        // Close any existing EventSource
+        if (window.eventSource) {
+            window.eventSource.close();
+        }
+        
+        try {
+            const url = new URL('/events', window.location.href);
+            url.searchParams.set('t', Date.now().toString());
+            
+            logDebug(`EventSource URL: ${url.toString()}`);
+            
+            const source = new EventSource(url.toString());
+            window.eventSource = source;
+            
+            source.onopen = function() {
+                logDebug('EventSource connection opened');
+                statusElem.textContent = 'Connected via EventSource';
+                statusElem.className = 'sse-status connected';
+            };
+            
+            source.onerror = function(error) {
+                logDebug(`EventSource error: ${error.type}`);
+                source.close();
+                
+                statusElem.textContent = 'EventSource connection failed';
+                statusElem.className = 'sse-status error';
+                
+                // Add fallback to manual refresh
+                logDebug('Falling back to page refresh');
+                setupRefreshCounter();
+            };
+            
+            source.addEventListener('connected', function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    logDebug(`Connected as client ID: ${data.id}`);
+                } catch (err) {
+                    logDebug(`Error parsing connected event: ${err.message}`);
+                }
+            });
+            
+            source.addEventListener('update', function(e) {
+                logDebug('Received update event');
+                try {
+                    const meetings = JSON.parse(e.data);
+                    logDebug(`Parsed ${meetings.length} meetings`);
+                    updateMeetingsTable(meetings);
+                    showUpdateFlash();
+                    
+                    // Update timestamp
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString();
+                    const lastUpdatedElem = document.getElementById('last-updated');
+                    if (lastUpdatedElem) {
+                        lastUpdatedElem.textContent = timeString;
+                    }
+                } catch (err) {
+                    logDebug(`Error processing update: ${err.message}`);
+                }
+            });
+        } catch (e) {
+            logDebug(`EventSource setup failed: ${e.message}`);
+            setupRefreshCounter();
+        }
+    }
+    
+    // Process events from fetch-based approach
+    function processEvents(text) {
+        logDebug(`Processing events: ${text.length} bytes`);
+        
+        // Parse the SSE format and extract events
+        const events = text.split('\n\n').filter(chunk => chunk.trim());
+        
+        events.forEach(eventText => {
+            logDebug(`Event chunk: ${eventText.substr(0, 50)}...`);
+            
+            // Parse the event
+            const lines = eventText.split('\n');
+            let eventType = null;
+            let data = null;
+            
+            lines.forEach(line => {
                 if (line.startsWith('event:')) {
                     eventType = line.substring(6).trim();
                 } else if (line.startsWith('data:')) {
                     data = line.substring(5).trim();
-                } else if (line.startsWith('id:')) {
-                    id = line.substring(3).trim();
-                    newLastEventId = id;
-                } else if (line.startsWith(':')) {
-                    // This is a comment, used for keep-alive
-                    continue;
                 }
+            });
+            
+            if (!eventType || !data) {
+                logDebug('Incomplete event, skipping');
+                return;
             }
             
-            if (data) {
-                // Create and dispatch a custom event
-                const event = new CustomEvent(eventType, {
-                    detail: { data, id }
-                });
-                
-                // Handle different event types
-                if (eventType === 'connected') {
-                    try {
-                        const parsedData = JSON.parse(data);
-                        console.log('SSE connected, client ID:', parsedData.id);
-                        statusElem.textContent = 'Live updates: Connected';
-                        statusElem.className = 'sse-status connected';
-                        reconnectAttempt = 0;
-                    } catch (e) {
-                        console.error('Error handling connected event:', e);
+            logDebug(`Parsed event type: ${eventType}`);
+            
+            if (eventType === 'connected') {
+                try {
+                    const parsedData = JSON.parse(data);
+                    logDebug(`Connected as client ID: ${parsedData.id}`);
+                } catch (e) {
+                    logDebug(`Error parsing connected data: ${e.message}`);
+                }
+            } else if (eventType === 'update') {
+                try {
+                    const meetings = JSON.parse(data);
+                    logDebug(`Parsed ${meetings.length} meetings`);
+                    updateMeetingsTable(meetings);
+                    showUpdateFlash();
+                    
+                    // Update timestamp
+                    const now = new Date();
+                    const timeString = now.toLocaleTimeString();
+                    const lastUpdatedElem = document.getElementById('last-updated');
+                    if (lastUpdatedElem) {
+                        lastUpdatedElem.textContent = timeString;
                     }
-                } else if (eventType === 'update') {
-                    try {
-                        const meetings = JSON.parse(data);
-                        updateMeetingsTable(meetings);
-                        
-                        // Update timestamp
-                        const now = new Date();
-                        const timeString = now.toLocaleTimeString();
-                        const lastUpdatedElem = document.getElementById('last-updated');
-                        if (lastUpdatedElem) {
-                            lastUpdatedElem.textContent = timeString;
-                        }
-                        
-                        showUpdateFlash();
-                    } catch (e) {
-                        console.error('Error handling update event:', e);
-                    }
+                } catch (e) {
+                    logDebug(`Error parsing update data: ${e.message}`);
                 }
             }
-        }
-        
-        return newLastEventId;
+        });
     }
     
-    // Custom SSE connection function using Fetch API
-    async function connectSSE() {
-        // Clear any existing reconnect timer
-        if (reconnectTimer) {
-            clearTimeout(reconnectTimer);
-            reconnectTimer = null;
-        }
-        
-        // Create a new abort controller for this connection
-        abortController = new AbortController();
-        const signal = abortController.signal;
-        
-        // Track the last event ID to resume streaming if disconnected
-        let lastEventId = '';
-        let textBuffer = '';
-        
-        try {
-            // Log connection attempt
-            console.log('Attempting SSE connection...');
-            
-            // Use EventSource as a fallback first - it's more reliable for SSE
-            // If this fails, we'll try fetch as a backup
-            try {
-                const url = new URL('/events', window.location.href);
-                url.searchParams.set('t', Date.now().toString());
-                
-                // Check if we're already using EventSource to prevent double connections
-                if (window.eventSource) {
-                    window.eventSource.close();
-                }
-                
-                const eventSource = new EventSource(url.toString());
-                window.eventSource = eventSource;
-                
-                console.log('Using native EventSource');
-                
-                // Set up event handlers
-                eventSource.addEventListener('connected', function(event) {
-                    try {
-                        const parsedData = JSON.parse(event.data);
-                        console.log('SSE connected, client ID:', parsedData.id);
-                        statusElem.textContent = 'Live updates: Connected';
-                        statusElem.className = 'sse-status connected';
-                        reconnectAttempt = 0;
-                    } catch (e) {
-                        console.error('Error handling connected event:', e);
-                    }
-                });
-                
-                eventSource.addEventListener('update', function(event) {
-                    try {
-                        const meetings = JSON.parse(event.data);
-                        updateMeetingsTable(meetings);
-                        
-                        // Update timestamp
-                        const now = new Date();
-                        const timeString = now.toLocaleTimeString();
-                        const lastUpdatedElem = document.getElementById('last-updated');
-                        if (lastUpdatedElem) {
-                            lastUpdatedElem.textContent = timeString;
-                        }
-                        
-                        showUpdateFlash();
-                    } catch (e) {
-                        console.error('Error handling update event:', e);
-                    }
-                });
-                
-                eventSource.addEventListener('error', function(error) {
-                    console.error('EventSource error:', error);
-                    eventSource.close();
-                    window.eventSource = null;
-                    
-                    // Fall back to fetch-based approach
-                    console.log('Falling back to fetch-based SSE');
-                    useFetchBasedSSE();
-                });
-                
-                return; // Exit early if EventSource works
-            } catch (e) {
-                console.warn('Failed to use EventSource, falling back to fetch:', e);
-                // Continue with fetch-based approach
-            }
-            
-            // Fetch-based approach (this is our fallback)
-            function useFetchBasedSSE() {
-                // Use the same URL structure for consistency
-                const url = new URL('/events', window.location.href);
-                url.searchParams.set('t', Date.now().toString());
-                
-                // Try both with and without credentials to work around potential CORS issues
-                fetch(url.toString(), {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'text/event-stream',
-                        'Cache-Control': 'no-cache',
-                        ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {})
-                    },
-                    credentials: 'same-origin', // This helps with cookie-based authentication
-                    cache: 'no-store',
-                    signal: signal
-                })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
-                    
-                    console.log('SSE fetch connection established');
-                    
-                    const reader = response.body.getReader();
-                    const decoder = new TextDecoder();
-                    
-                    function readChunk() {
-                        reader.read().then(({ value, done }) => {
-                            if (done) {
-                                console.log('SSE stream complete');
-                                return;
-                            }
-                            
-                            // Process the chunk
-                            const chunk = decoder.decode(value, { stream: true });
-                            textBuffer += chunk;
-                            
-                            // Process complete events
-                            if (textBuffer.includes('\n\n')) {
-                                lastEventId = processEventStream(textBuffer, lastEventId);
-                                
-                                // Keep only the incomplete part
-                                const lastIndex = textBuffer.lastIndexOf('\n\n');
-                                if (lastIndex !== -1) {
-                                    textBuffer = textBuffer.substring(lastIndex + 2);
-                                }
-                            }
-                            
-                            // Continue reading
-                            readChunk();
-                        }).catch(error => {
-                            if (error.name !== 'AbortError') {
-                                console.error('Error reading SSE chunk:', error);
-                                throw error;
-                            }
-                        });
-                    }
-                    
-                    // Start reading the stream
-                    readChunk();
-                    
-                    return new Promise(() => {}); // This promise never resolves, which is fine for SSE
-                })
-                .catch(error => {
-                    // Handle errors from fetch
-                    if (error.name !== 'AbortError') {
-                        console.error('SSE fetch error:', error);
-                        
-                        statusElem.textContent = 'Live updates: Disconnected';
-                        statusElem.className = 'sse-status disconnected';
-                        
-                        // Implement reconnection with exponential backoff
-                        reconnectAttempt++;
-                        const delay = Math.min(reconnectAttempt * 2000, 10000);
-                        
-                        console.log(`Reconnecting in ${delay/1000} seconds... (attempt ${reconnectAttempt})`);
-                        
-                        // Set up reconnection timer
-                        reconnectTimer = setTimeout(() => {
-                            if (reconnectAttempt < maxRetries) {
-                                connectSSE();
-                            } else {
-                                console.log('Maximum reconnection attempts reached, falling back to refresh');
-                                statusElem.textContent = 'Live updates: Failed';
-                                statusElem.className = 'sse-status error';
-                                setupRefreshCounter();
-                            }
-                        }, delay);
-                    }
-                });
-            }
-            
-            // Execute the fetch-based approach
-            useFetchBasedSSE();
-            
-        } catch (error) {
-            // This catches any errors in the top-level try block
-            if (error.name !== 'AbortError') {
-                console.error('SSE connection error:', error);
-                
-                statusElem.textContent = 'Live updates: Disconnected';
-                statusElem.className = 'sse-status disconnected';
-                
-                // Fallback to refresh if we can't establish any kind of SSE connection
-                console.log('SSE connection failed, falling back to refresh');
-                setupRefreshCounter();
-            }
-        }
-    }
+    // Start with fetch approach first (more reliable across browsers)
+    connectWithFetch();
     
-    // Start the initial connection
-    connectSSE();
-    
-    // Clean up on page unload
-    window.addEventListener('beforeunload', function() {
-        if (abortController) {
-            abortController.abort();
-        }
-        if (reconnectTimer) {
-            clearTimeout(reconnectTimer);
-        }
-    });
+    // Add button to toggle debug panel
+    const toggleBtn = document.createElement('button');
+    toggleBtn.textContent = 'Toggle Debug';
+    toggleBtn.style.position = 'fixed';
+    toggleBtn.style.bottom = '10px';
+    toggleBtn.style.right = '10px';
+    toggleBtn.style.zIndex = '1000';
+    toggleBtn.onclick = function() {
+        debugElem.style.display = debugElem.style.display === 'none' ? 'block' : 'none';
+    };
+    document.body.appendChild(toggleBtn);
 }
 
 // Update the meetings table with new data
