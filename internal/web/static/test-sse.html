@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zrooms SSE Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card { background: #f5f5f5; border-radius: 4px; padding: 15px; margin-bottom: 15px; }
+        pre { background: #eee; padding: 10px; border-radius: 4px; overflow: auto; }
+        .btn { background: #4CAF50; color: white; border: none; padding: 10px 15px; cursor: pointer; border-radius: 4px; }
+        .btn:hover { background: #45a049; }
+        .status { margin-top: 10px; font-weight: bold; }
+        .log { margin-top: 20px; background: #333; color: #fff; padding: 10px; border-radius: 4px; max-height: 300px; overflow: auto; }
+        .payload { margin-top: 10px; padding: 10px; background: #e9f7ef; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Zrooms SSE Test</h1>
+        
+        <div class="card">
+            <h2>SSE Connection Status</h2>
+            <button id="connect-btn" class="btn">Connect to SSE</button>
+            <button id="disconnect-btn" class="btn" style="background: #f44336;">Disconnect</button>
+            <button id="test-event-btn" class="btn" style="background: #2196F3;">Simulate Test Event</button>
+            <div id="connection-status" class="status">Disconnected</div>
+        </div>
+        
+        <div class="card">
+            <h2>Test Event Payload</h2>
+            <p>This is the example event that will be simulated:</p>
+            <div class="payload">
+                <pre>event: update
+data: [{"id":"96722590573","topic":"AppSec \u0026 Friends","start_time":"0001-01-01T00:00:00Z","end_time":"2025-05-09T10:08:06.15140462+02:00","duration":0,"status":3,"host":{"id":"","name":"","email":"","join_time":"0001-01-01T00:00:00Z","leave_time":"0001-01-01T00:00:00Z"},"participants":[]}]</pre>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>Received Events</h2>
+            <div id="events-container"></div>
+        </div>
+        
+        <div class="log" id="debug-log">
+            <!-- Debug logs will be displayed here -->
+        </div>
+    </div>
+    
+    <script>
+        // State variables
+        let abortController = null;
+        let textBuffer = '';
+        
+        // DOM elements
+        const connectBtn = document.getElementById('connect-btn');
+        const disconnectBtn = document.getElementById('disconnect-btn');
+        const testEventBtn = document.getElementById('test-event-btn');
+        const statusEl = document.getElementById('connection-status');
+        const eventsContainer = document.getElementById('events-container');
+        const debugLog = document.getElementById('debug-log');
+        
+        // Log function
+        function log(message, isError = false) {
+            const logEntry = document.createElement('div');
+            logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            if (isError) {
+                logEntry.style.color = '#ff6b6b';
+            }
+            debugLog.appendChild(logEntry);
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+        
+        // Process SSE text chunks (same logic as in our app.js)
+        function processEventStream(text) {
+            log(`Processing event stream chunk: ${text.length} bytes`);
+            
+            // Split the text into individual event chunks
+            const eventChunks = text.split('\n\n');
+            
+            for (const chunk of eventChunks) {
+                if (!chunk.trim()) continue;
+                
+                const lines = chunk.split('\n');
+                let eventType = 'message';
+                let data = '';
+                let id = '';
+                
+                for (const line of lines) {
+                    if (line.startsWith('event:')) {
+                        eventType = line.substring(6).trim();
+                    } else if (line.startsWith('data:')) {
+                        data = line.substring(5).trim();
+                    } else if (line.startsWith('id:')) {
+                        id = line.substring(3).trim();
+                    } else if (line.startsWith(':')) {
+                        // This is a comment, used for keep-alive
+                        log('Received keep-alive ping');
+                        continue;
+                    }
+                }
+                
+                if (data) {
+                    log(`Received ${eventType} event with data`);
+                    
+                    // Display the event
+                    const eventEl = document.createElement('div');
+                    eventEl.className = 'card';
+                    eventEl.innerHTML = `
+                        <h3>Event: ${eventType}</h3>
+                        <pre>${data}</pre>
+                        <div>Received at: ${new Date().toLocaleTimeString()}</div>
+                    `;
+                    eventsContainer.prepend(eventEl);
+                    
+                    // If it's the example update event, parse and validate it
+                    if (eventType === 'update') {
+                        try {
+                            const meetings = JSON.parse(data);
+                            log(`Successfully parsed ${meetings.length} meetings from update event`);
+                            
+                            // Validate the meeting data matches what we expect
+                            if (meetings[0] && meetings[0].id === '96722590573') {
+                                log('✅ Event contains the expected meeting ID: 96722590573');
+                                
+                                if (meetings[0].topic && meetings[0].topic.includes('AppSec')) {
+                                    log('✅ Event contains the expected meeting topic: AppSec & Friends');
+                                }
+                            }
+                        } catch (e) {
+                            log(`Error parsing update event data: ${e.message}`, true);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Custom SSE connection function
+        async function connectSSE() {
+            // Reset UI
+            statusEl.textContent = 'Connecting...';
+            statusEl.style.color = '#f39c12';
+            
+            // Create a new abort controller
+            abortController = new AbortController();
+            const signal = abortController.signal;
+            
+            textBuffer = '';
+            
+            try {
+                log('Initiating SSE connection...');
+                
+                // Start a fetch request
+                const response = await fetch(`/events?t=${Date.now()}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'text/event-stream',
+                        'Cache-Control': 'no-cache'
+                    },
+                    cache: 'no-store',
+                    signal: signal
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! Status: ${response.status}`);
+                }
+                
+                // Get the reader to process the stream
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                log('SSE connection established');
+                statusEl.textContent = 'Connected';
+                statusEl.style.color = '#2ecc71';
+                
+                // Process the stream
+                while (true) {
+                    const { value, done } = await reader.read();
+                    
+                    if (done) {
+                        log('SSE stream complete');
+                        break;
+                    }
+                    
+                    // Decode the chunk and add it to our buffer
+                    const chunk = decoder.decode(value, { stream: true });
+                    textBuffer += chunk;
+                    
+                    // Process complete events
+                    if (textBuffer.includes('\n\n')) {
+                        processEventStream(textBuffer);
+                        
+                        // Keep only the incomplete part
+                        const lastIndex = textBuffer.lastIndexOf('\n\n');
+                        if (lastIndex !== -1) {
+                            textBuffer = textBuffer.substring(lastIndex + 2);
+                        }
+                    }
+                }
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    log(`SSE connection error: ${error.message}`, true);
+                    statusEl.textContent = 'Connection Failed';
+                    statusEl.style.color = '#e74c3c';
+                } else {
+                    log('Connection aborted by user');
+                }
+            }
+        }
+        
+        // Disconnect from SSE
+        function disconnectSSE() {
+            if (abortController) {
+                abortController.abort();
+                abortController = null;
+                
+                statusEl.textContent = 'Disconnected';
+                statusEl.style.color = '#7f8c8d';
+                log('Disconnected from SSE');
+            }
+        }
+        
+        // Simulate the test event
+        function simulateTestEvent() {
+            log('Simulating test event...');
+            
+            const testEvent = `event: update
+data: [{"id":"96722590573","topic":"AppSec \\u0026 Friends","start_time":"0001-01-01T00:00:00Z","end_time":"2025-05-09T10:08:06.15140462+02:00","duration":0,"status":3,"host":{"id":"","name":"","email":"","join_time":"0001-01-01T00:00:00Z","leave_time":"0001-01-01T00:00:00Z"},"participants":[]}]
+`;
+            
+            // Process the event directly
+            processEventStream(testEvent);
+            log('Test event processed');
+        }
+        
+        // Attach event listeners
+        connectBtn.addEventListener('click', connectSSE);
+        disconnectBtn.addEventListener('click', disconnectSSE);
+        testEventBtn.addEventListener('click', simulateTestEvent);
+        
+        // Initial log
+        log('SSE Test page loaded. Use the Connect button to start connection.');
+    </script>
+</body>
+</html>
