@@ -130,13 +130,26 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 		return
 	}
 
-	// Create an SSE event
+	// Create an SSE event with proper format according to the SSE spec
 	event := &sse.Event{
+		// Event field must come first in SSE format
 		Event: []byte("update"),
-		Data:  data,
+		
+		// Data contains the JSON payload
+		Data: data,
+		
+		// ID is optional, but if included should be set properly
+		// Using a timestamp as ID ensures uniqueness
+		ID: []byte(fmt.Sprintf("%d", time.Now().UnixNano())),
 	}
+
+	// Log the event being published for debugging
+	logData := string(data)
+	if len(logData) > 100 {
+		logData = logData[:100] + "..." // Truncate long payloads in logs
+	}
+	log.Printf("Publishing SSE update event: %s", logData)
 
 	// Publish the event to all clients
 	sm.server.Publish("meetings", event)
-	log.Printf("Published meeting update event to SSE clients")
 }
