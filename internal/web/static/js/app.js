@@ -95,14 +95,22 @@ function updateMeetingsTable(meetings) {
     tableBody.innerHTML = '';
     
     // Check if we have meetings
-    if (meetings.length === 0) {
+    if (!meetings || meetings.length === 0) {
         const emptyRow = document.createElement('tr');
-        emptyRow.innerHTML = `<td colspan="5" class="no-meetings">No active meetings</td>`;
+        emptyRow.innerHTML = `<td colspan="4" class="no-meetings">No active meetings</td>`;
         tableBody.appendChild(emptyRow);
     } else {
         // Add rows for each meeting
         meetings.forEach(function(meeting) {
+            if (!meeting) return; // Skip invalid meetings
+            
             const row = document.createElement('tr');
+            
+            // Safely access properties with defaults
+            const meetingObj = meeting.meeting || {};
+            const topic = meetingObj.topic || 'Unnamed Meeting';
+            const participantCount = meeting.participantCount || 0;
+            const startedAt = meeting.startedAt || '';
             
             // Determine status class
             let statusClass = '';
@@ -118,11 +126,10 @@ function updateMeetingsTable(meetings) {
             
             // Format the meeting data
             row.innerHTML = `
-                <td>${meeting.meeting.topic || 'Unnamed Meeting'}</td>
+                <td>${topic}</td>
                 <td class="${statusClass}">${statusText}</td>
-                <td>${meeting.participantCount}</td>
-                <td>${formatTime(meeting.startedAt)}</td>
-                <td>${meeting.meeting.roomName || 'No Room'}</td>
+                <td class="center">${participantCount}</td>
+                <td>${formatTime(startedAt)}</td>
             `;
             
             tableBody.appendChild(row);

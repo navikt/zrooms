@@ -1,13 +1,13 @@
 # Zroom - Zoom Room Status Application
 
-This document provides guidelines for developing the Zroom application, a Golang API and website that handles Zoom meeting events via webhooks and displays room status.
+This document provides guidelines for developing the Zroom application, a Golang API and website that handles Zoom meeting events via webhooks and displays meeting status.
 
 ## Project Overview
 
 Zroom is a Go application that:
 1. Receives webhook notifications from Zoom about meeting events
-2. Processes and stores meeting status information
-3. Provides a web interface to view room/meeting status
+2. Processes and stores meeting status information with participant counts
+3. Provides a web interface to view meeting status
 
 ## Development Approach
 
@@ -30,7 +30,7 @@ We follow test-driven development (TDD):
 ```
 zrooms/
 ├── .github/
-│   └── copilot-instructions  # This file
+│   └── copilot-instructions.md  # This file
 ├── cmd/
 │   └── zrooms/               # Application entrypoint
 │       └── main.go
@@ -41,14 +41,13 @@ zrooms/
 │   ├── config/               # Application configuration
 │   │   └── config.go
 │   ├── models/               # Data models
-│   │   ├── meeting.go
-│   │   └── room.go
+│   │   └── meeting.go
 │   ├── repository/           # Data access layer
 │   │   ├── interface.go
 │   │   └── memory/           # In-memory implementation
 │   │       └── repository.go
 │   ├── service/              # Business logic
-│   │   └── room_service.go
+│   │   └── meeting_service.go
 │   ├── web/                  # Web UI
 │   │   ├── handlers.go
 │   │   ├── templates/
@@ -88,7 +87,6 @@ zrooms/
 - The application should validate webhook requests from Zoom
 - Handle the following Zoom events:
   - Meeting created
-  - Meeting updated
   - Meeting started
   - Meeting ended
   - Participant joined
@@ -97,8 +95,8 @@ zrooms/
 
 ## Web Interface Requirements
 
-1. Display a list of rooms/meetings with status
-2. Show current occupancy of each room
+1. Display a list of meetings with status
+2. Show current occupancy of each meeting
 3. Provide filtering and sorting options
 4. Use a responsive design for mobile compatibility
 5. Auto-refresh data at appropriate intervals

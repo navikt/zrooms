@@ -11,7 +11,6 @@
                         <th>Status</th>
                         <th class="center">Participants</th>
                         <th>Started At</th>
-                        <th>Room</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -31,7 +30,6 @@
                         </td>
                         <td class="center">{{.ParticipantCount}}</td>
                         <td>{{if .StartedAt}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
-                        <td>{{.Meeting.RoomName}}</td>
                     </tr>
                     {{end}}
                 </tbody>
