@@ -5,7 +5,11 @@
     <div id="meeting-list-container" class="meeting-list"
          hx-ext="sse" 
          sse-connect="/events"
-         sse-swap="update">
+         sse-swap="update"
+         hx-trigger="sse:update"
+         hx-get="/partial/meetings"
+         hx-target="#meeting-list-container"
+         hx-swap="innerHTML">
         {{template "meeting_list" .}}
     </div>
 </section>
