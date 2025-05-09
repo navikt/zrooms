@@ -5,6 +5,7 @@
     <div id="meeting-list-container" class="meeting-list"
          hx-ext="sse" 
          sse-connect="/events"
+         hx-sse-src="/events"
          sse-swap="update"
          hx-trigger="sse:update"
          hx-get="/partial/meetings"

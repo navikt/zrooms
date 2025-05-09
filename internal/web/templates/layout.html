@@ -10,11 +10,24 @@
     {{end}}
     <!-- Include HTMX library first in the head -->
     <script src="/static/js/lib/htmx.min.js"></script>
-    <!-- Initialize the SSE extension explicitly -->
+    <!-- Initialize the SSE extension properly -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             if (typeof htmx !== 'undefined') {
                 htmx.defineExtension('sse', {
+                    init: function(elt) {
+                        // This ensures the SSE source is properly initialized
+                        var srcElt = htmx.closest(elt, '[hx-sse-src], [data-hx-sse-src]') || 
+                                     document.querySelector('[hx-sse-src], [data-hx-sse-src]');
+                        
+                        // If no explicit source, use the URL from sse-connect attribute
+                        if (!srcElt && elt.getAttribute('sse-connect')) {
+                            elt.setAttribute('hx-sse-src', elt.getAttribute('sse-connect'));
+                            srcElt = elt;
+                        }
+                        
+                        return srcElt;
+                    },
                     onEvent: function(name, evt) {
                         console.log('SSE event received:', name, evt);
                         return true;
