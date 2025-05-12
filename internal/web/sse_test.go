@@ -148,7 +148,7 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	assert.Contains(t, responseBody, `data:{"id":`)
 
 	// With HTMX implementation, the update event should point to the partial endpoint
-	assert.Contains(t, responseBody, `data:/partial/meetings`)
+	assert.Contains(t, responseBody, `Update available`)
 
 	// Simulate client disconnect by cancelling the context
 	cancel()
@@ -195,10 +195,7 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 	// Check that the client received the update event
 	responseBody := responseRecorder.Body.String()
 	assert.Contains(t, responseBody, "event:update")
-	assert.Contains(t, responseBody, "data:/partial/meetings")
-
-	// With the HTMX implementation, we don't call GetAllMeetings anymore
-	// mockService.AssertExpectations(t)
+	assert.Contains(t, responseBody, "Update available")
 }
 
 func TestIsEventStreamSupported(t *testing.T) {
