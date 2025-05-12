@@ -134,20 +134,45 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 			// Client is still connected
 		}
 
-		// Send the event - this will trigger the htmx request via hx-trigger="sse:update"
-		err := sse.Encode(client.responseWriter, sse.Event{
-			Id:    eventID,
-			Event: "update",
-			Data:  "Update available", // Simple message - htmx will use the trigger
-		})
+		// Use a separate function to handle errors for each client
+		// This prevents errors with one client from affecting others
+		func(clientID string, c *SSEClient) {
+			defer func() {
+				// Recover from panics that might occur when writing to closed connections
+				if r := recover(); r != nil {
+					log.Printf("Recovered from panic sending SSE to client %s: %v", clientID, r)
+					// Mark client as disconnected if there was a panic
+					close(c.disconnected)
+				}
+			}()
 
-		if f, ok := client.responseWriter.(http.Flusher); ok {
-			f.Flush()
-		}
+			// Add SSE comment line as keepalive before the event
+			// This helps maintain the connection and prevents protocol errors
+			_, err := fmt.Fprintf(c.responseWriter, ": keepalive %s\n\n", time.Now().Format(time.RFC3339))
+			if err != nil {
+				log.Printf("Error sending keepalive to client %s: %v", clientID, err)
+				close(c.disconnected)
+				return
+			}
 
-		if err != nil {
-			log.Printf("Error sending SSE event to client %s: %v", id, err)
-		}
+			// Send the event - this will trigger the htmx request via hx-trigger="sse:update"
+			err = sse.Encode(c.responseWriter, sse.Event{
+				Id:    eventID,
+				Event: "update",
+				Data:  "Update available", // Simple message - htmx will use the trigger
+			})
+
+			if err != nil {
+				log.Printf("Error sending SSE event to client %s: %v", clientID, err)
+				close(c.disconnected)
+				return
+			}
+
+			// Flush the response writer to ensure data is sent immediately
+			if f, ok := c.responseWriter.(http.Flusher); ok {
+				f.Flush()
+			}
+		}(id, client)
 	}
 }
 
