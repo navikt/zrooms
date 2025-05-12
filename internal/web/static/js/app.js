@@ -1,4 +1,9 @@
 // Simplified app.js for Zrooms with HTMX support
+
+// Default useSSE and htmx to true if not already defined
+var useSSE = typeof useSSE !== 'undefined' ? useSSE : true;
+var htmx = typeof htmx !== 'undefined' ? htmx : true;
+
 document.addEventListener('DOMContentLoaded', function() {
     // We don't need much JavaScript since HTMX handles most of the dynamic behavior
     console.log('Zrooms application loaded with HTMX support');
