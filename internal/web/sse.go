@@ -50,6 +50,7 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no") // Disable proxy buffering
 
 	// Check if client accepts SSE
 	if !isEventStreamSupported(r) {
@@ -93,7 +94,12 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("SSE client disconnected: %s", clientID)
 	}()
 
-	// Send initial connected event
+	// Write a few newlines to prime the connection
+	fmt.Fprintf(w, "\n\n")
+	flusher.Flush()
+
+	// Send initial connected event with retry directive
+	fmt.Fprintf(w, "retry: 10000\n") // 10 second retry
 	sse.Encode(w, sse.Event{
 		Event: "connected",
 		Data:  map[string]string{"id": clientID},
@@ -107,9 +113,28 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	flusher.Flush()
 
-	// Keep the connection open until the client disconnects
-	<-r.Context().Done()
-	close(disconnected)
+	// Set up heartbeat ticker to keep the connection alive
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	// Create a notification channel for client context cancellation
+	done := r.Context().Done()
+
+	// Keep the connection alive with periodic heartbeats
+	for {
+		select {
+		case <-done:
+			// Client disconnected
+			close(disconnected)
+			return
+		case <-heartbeat.C:
+			// Send heartbeat comment as per SSE spec
+			// The comment doesn't trigger an event but keeps the connection alive
+			fmt.Fprintf(w, ": heartbeat %s\n\n", time.Now().Format(time.RFC3339))
+			flusher.Flush()
+			log.Printf("Heartbeat sent to client: %s", clientID)
+		}
+	}
 }
 
 // NotifyMeetingUpdate sends meeting updates to all connected clients
