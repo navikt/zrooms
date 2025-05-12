@@ -100,10 +100,10 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	flusher.Flush()
 
-	// For HTMX, trigger an immediate update to fetch the initial data
+	// Send a one-time initial load event (different from update events)
 	sse.Encode(w, sse.Event{
-		Event: "update",
-		Data:  "Update available",
+		Event: "initial-load",
+		Data:  "Load initial data",
 	})
 	flusher.Flush()
 
