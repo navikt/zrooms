@@ -2,14 +2,11 @@
 <section>
     <h2>Meeting Status</h2>
     
-    <div id="meeting-list-container" class="meeting-list"
-         hx-ext="sse" 
-         sse-connect="/events"
-         sse-swap="message"
-         hx-trigger="sse:update from:body"
+    <div id="meeting-list-container" class="meeting-list" 
          hx-get="/partial/meetings"
          hx-target="#meeting-list-container"
-         hx-swap="innerHTML">
+         hx-swap="innerHTML"
+         hx-trigger="sse:update from:body">
         {{template "meeting_list" .}}
     </div>
 </section>

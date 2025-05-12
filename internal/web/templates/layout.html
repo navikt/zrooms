@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zrooms - Zoom Room Status</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    {{if gt .RefreshRate 0}}
+    {{if and (gt .RefreshRate 0) (not .UseSSE)}}
     <meta http-equiv="refresh" content="{{.RefreshRate}}">
     {{end}}
     <!-- Include HTMX library first in the head -->
@@ -17,7 +17,7 @@
     </script>
     <script src="/static/js/app.js"></script>
 </head>
-<body hx-ext="sse">
+<body hx-ext="sse" sse-connect="/events">
     <header>
         <div class="container">
             <h1>Zrooms</h1>
