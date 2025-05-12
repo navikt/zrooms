@@ -103,7 +103,7 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// For HTMX, trigger an immediate update to fetch the initial data
 	sse.Encode(w, sse.Event{
 		Event: "update",
-		Data:  "/partial/meetings",
+		Data:  "Update available",
 	})
 	flusher.Flush()
 
@@ -120,9 +120,6 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 	// Generate a unique event ID based on current timestamp
 	eventID := fmt.Sprintf("%d", time.Now().UnixNano())
 
-	// For HTMX compatibility, we need to render HTML instead of sending JSON
-	// This will be handled by calling the /partial/meetings endpoint
-
 	// Publish the event to all clients
 	sm.clientsMutex.RLock()
 	defer sm.clientsMutex.RUnlock()
@@ -137,12 +134,11 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 			// Client is still connected
 		}
 
-		// Send the event - for HTMX compatibility, we just send the event name
-		// and let HTMX handle fetching the updated content
+		// Send the event - this will trigger the htmx request via hx-trigger="sse:update"
 		err := sse.Encode(client.responseWriter, sse.Event{
 			Id:    eventID,
 			Event: "update",
-			Data:  "/partial/meetings", // HTMX will fetch this URL
+			Data:  "Update available", // Simple message - htmx will use the trigger
 		})
 
 		if f, ok := client.responseWriter.(http.Flusher); ok {
