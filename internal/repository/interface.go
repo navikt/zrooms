@@ -23,6 +23,7 @@ type Repository interface {
 	AddParticipantToMeeting(ctx context.Context, meetingID string, participantID string) error
 	RemoveParticipantFromMeeting(ctx context.Context, meetingID string, participantID string) error
 	CountParticipantsInMeeting(ctx context.Context, meetingID string) (int, error)
+	ClearPartipantsInMeeting(ctx context.Context, meetingID string) error
 }
 
 // NewRepository creates a repository based on configuration

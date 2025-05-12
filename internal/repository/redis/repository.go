@@ -371,3 +371,17 @@ func (r *Repository) CountParticipantsInMeeting(ctx context.Context, meetingID s
 
 	return int(count), nil
 }
+
+func (r *Repository) ClearPartipantsInMeeting(ctx context.Context, meetingID string) error {
+	// Attempt to fetch the meeting
+	meeting, err := r.GetMeeting(ctx, meetingID)
+	if err != nil {
+		return fmt.Errorf("failed to get meeting: %w", err)
+	}
+
+	// Create a copy of the meeting with zero participants
+	meeting.Participants = []models.Participant{}
+
+	// Overwrite the original meeting with the new one
+	return r.SaveMeeting(ctx, meeting)
+}
