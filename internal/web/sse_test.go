@@ -133,7 +133,7 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 
 	// Check response headers
 	assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
-	assert.Equal(t, "no-cache", recorder.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache, no-transform", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "keep-alive", recorder.Header().Get("Connection"))
 
 	// Check response body - should contain SSE format events
