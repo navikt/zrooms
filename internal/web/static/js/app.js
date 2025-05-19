@@ -1,17 +1,7 @@
 // Simplified app.js for Zrooms with HTMX support
-
-// Default useSSE and htmx to true if not already defined
-var useSSE = typeof useSSE !== 'undefined' ? useSSE : true;
-var htmx = typeof htmx !== 'undefined' ? htmx : true;
-
 document.addEventListener('DOMContentLoaded', function() {
     // We don't need much JavaScript since HTMX handles most of the dynamic behavior
     console.log('Zrooms application loaded with HTMX support');
-    
-    // Only apply these enhancements if SSE is not enabled or HTMX is not supported
-    if (!useSSE || !htmx) {
-        setupRefreshCounter();
-    }
     
     // Apply alternating row colors
     applyRowStyles();
@@ -33,18 +23,16 @@ document.addEventListener('DOMContentLoaded', function() {
         updateMeetingCountInTitle();
     });
     
-    // Add status indicator for SSE connection
-    if (useSSE && htmx) {
-        document.body.addEventListener('htmx:sseOpen', function() {
-            console.log('SSE connection opened');
-            addConnectionIndicator('connected');
-        });
-        
-        document.body.addEventListener('htmx:sseError', function() {
-            console.log('SSE connection error');
-            addConnectionIndicator('error');
-        });
-    }
+    // Add status indicator for SSE connection (always enabled)
+    document.body.addEventListener('htmx:sseOpen', function() {
+        console.log('SSE connection opened');
+        addConnectionIndicator('connected');
+    });
+    
+    document.body.addEventListener('htmx:sseError', function() {
+        console.log('SSE connection error');
+        addConnectionIndicator('error');
+    });
 });
 
 // Add a visual indicator for SSE connection status

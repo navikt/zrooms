@@ -5,19 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Zrooms - Zoom Room Status</title>
     <link rel="stylesheet" href="/static/css/style.css">
-    {{if and (gt .RefreshRate 0) (not .UseSSE)}}
-    <meta http-equiv="refresh" content="{{.RefreshRate}}">
-    {{end}}
     <!-- Include HTMX library first in the head -->
     <script src="/static/js/lib/htmx.min.js"></script>
     <script src="/static/js/lib/sse.min.js"></script>
-    <!-- Initialize the SSE extension properly -->
-    <script>
-        const useSSE = {{.UseSSE}};
-    </script>
     <script src="/static/js/app.js"></script>
 </head>
-<body hx-ext="sse" sse-connect="/events">
+<body>
     <header>
         <div class="container">
             <h1>Zrooms</h1>
@@ -34,7 +27,5 @@
             <p>&copy; {{.CurrentYear}} Zrooms - Last updated: <span id="last-updated">{{.LastUpdated}}</span></p>
         </div>
     </footer>
-
-    <!-- Include our application JS -->
 </body>
 </html>

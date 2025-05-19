@@ -16,12 +16,11 @@ import (
 type Handler struct {
 	meetingService *service.MeetingService
 	templates      *template.Template
-	refreshRate    int // in seconds
 	sseManager     *SSEManager
 }
 
 // NewHandler creates a new web UI handler
-func NewHandler(meetingService *service.MeetingService, templatesDir string, refreshRate int) (*Handler, error) {
+func NewHandler(meetingService *service.MeetingService, templatesDir string) (*Handler, error) {
 	// Parse templates
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"formatTime": formatTime,
@@ -31,13 +30,12 @@ func NewHandler(meetingService *service.MeetingService, templatesDir string, ref
 		return nil, fmt.Errorf("failed to parse templates: %w", err)
 	}
 
-	// Create SSE manager
+	// Create SSE manager (always enabled)
 	sseManager := NewSSEManager(meetingService)
 
 	return &Handler{
 		meetingService: meetingService,
 		templates:      tmpl,
-		refreshRate:    refreshRate,
 		sseManager:     sseManager,
 	}, nil
 }
@@ -56,7 +54,7 @@ func (h *Handler) SetupRoutes(mux *http.ServeMux) {
 	fileServer := http.FileServer(http.Dir("./internal/web/static"))
 	mux.Handle("/static/", http.StripPrefix("/static/", fileServer))
 
-	// Serve SSE endpoint
+	// Serve SSE endpoint (always enabled)
 	mux.Handle("/events", h.sseManager)
 
 	// Serve index page
@@ -87,20 +85,10 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Meetings    []service.MeetingStatusData
 		LastUpdated string
 		CurrentYear int
-		RefreshRate int
-		UseSSE      bool
 	}{
 		Meetings:    meetings,
 		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear: time.Now().Year(),
-		RefreshRate: h.refreshRate,
-		UseSSE:      true, // Enable SSE in the template
-	}
-
-	// We don't need the Refresh header when using SSE
-	// But we'll keep the refresh as a fallback mechanism
-	if h.refreshRate > 0 {
-		w.Header().Set("Refresh", fmt.Sprintf("%d", h.refreshRate))
 	}
 
 	// Render template

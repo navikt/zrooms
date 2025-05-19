@@ -182,10 +182,6 @@ func (s *MeetingService) NotifyMeetingStarted(meeting *models.Meeting) {
 	if err := s.repo.SaveMeeting(ctx, meeting); err != nil {
 		log.Printf("Error saving started meeting state: %v", err)
 	}
-
-	// Then clear all participants using the safe method
-	s.ClearMeetingParticipants(meeting.ID)
-
 	// Notify all registered callbacks about the meeting starting
 	s.notifyUpdate(meeting)
 }
@@ -206,9 +202,11 @@ func (s *MeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
 		log.Printf("Error saving ended meeting state: %v", err)
 	}
 
-	// Then clear all participants using the safe method
-	s.ClearMeetingParticipants(meeting.ID)
+	err := s.repo.ClearPartipantsInMeeting(ctx, meeting.ID)
+	if err != nil {
+		log.Printf("Error clearing participants for meeting %s: %v", meeting.ID, err)
 
+	}
 	// Notify all registered callbacks about the meeting ending
 	s.notifyUpdate(meeting)
 }
@@ -237,83 +235,4 @@ func (s *MeetingService) NotifyParticipantLeft(meetingID string, participantID s
 
 	// Notify about the change
 	s.notifyUpdate(meeting)
-}
-
-// ClearMeetingParticipants removes all participants from a meeting while preserving meeting data
-// Returns the number of participants cleared
-func (s *MeetingService) ClearMeetingParticipants(meetingID string) int {
-	ctx := context.Background()
-
-	// First, check if meeting exists and get its data
-	meeting, err := s.repo.GetMeeting(ctx, meetingID)
-	if err != nil {
-		log.Printf("Error getting meeting %s to clear participants: %v", meetingID, err)
-		return 0
-	}
-
-	// Check if there are any participants to clear
-	count, err := s.repo.CountParticipantsInMeeting(ctx, meetingID)
-	if err != nil || count == 0 {
-		return 0
-	}
-
-	// Log the operation
-	log.Printf("Clearing %d participants from meeting %s", count, meetingID)
-
-	// Instead of deleting and recreating the meeting, which might lose some data,
-	// we'll remove each participant individually
-	participantCounter := 0
-
-	// Use direct participant removal for each participant
-	for _, participant := range meeting.Participants {
-		if err := s.repo.RemoveParticipantFromMeeting(ctx, meetingID, participant.ID); err != nil {
-			log.Printf("Error removing participant %s: %v", participant.ID, err)
-		} else {
-			participantCounter++
-		}
-	}
-
-	// If we didn't clear all participants through the direct approach,
-	// try a different approach by updating the meeting with empty participants
-	if participantCounter < count {
-		// Get the remaining count
-		remainingCount, _ := s.repo.CountParticipantsInMeeting(ctx, meetingID)
-		if remainingCount > 0 {
-			log.Printf("Trying alternative approach to clear %d remaining participants", remainingCount)
-
-			// Keep trying to remove participants until all are gone or we give up
-			// This is needed because the Participants slice might not contain all participant IDs
-			maxAttempts := 10
-			attempt := 0
-
-			for attempt < maxAttempts {
-				// Get updated meeting to see remaining participants
-				updatedMeeting, err := s.repo.GetMeeting(ctx, meetingID)
-				if err != nil {
-					break
-				}
-
-				// If no more participants, we're done
-				currentCount, _ := s.repo.CountParticipantsInMeeting(ctx, meetingID)
-				if currentCount == 0 {
-					break
-				}
-
-				// For any remaining participants, try to remove them
-				for _, participant := range updatedMeeting.Participants {
-					s.repo.RemoveParticipantFromMeeting(ctx, meetingID, participant.ID)
-				}
-
-				attempt++
-			}
-		}
-	}
-
-	// Verify final count
-	finalCount, _ := s.repo.CountParticipantsInMeeting(ctx, meetingID)
-	if finalCount > 0 {
-		log.Printf("Warning: After clearing, there are still %d participants in meeting %s", finalCount, meetingID)
-	}
-
-	return count
 }
