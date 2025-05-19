@@ -7,6 +7,7 @@ import (
 
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
+	"github.com/navikt/zrooms/internal/utils"
 )
 
 // MeetingUpdateCallback is a function type for meeting update callbacks
@@ -204,7 +205,7 @@ func (s *MeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
 
 	err := s.repo.ClearPartipantsInMeeting(ctx, meeting.ID)
 	if err != nil {
-		log.Printf("Error clearing participants for meeting %s: %v", meeting.ID, err)
+		log.Printf("Error clearing participants for meeting %s: %v", utils.SanitizeLogString(meeting.ID), err)
 
 	}
 	// Notify all registered callbacks about the meeting ending

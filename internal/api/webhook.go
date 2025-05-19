@@ -16,6 +16,7 @@ import (
 	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
+	"github.com/navikt/zrooms/internal/utils"
 )
 
 // WebhookHandler processes webhook events from Zoom
@@ -232,7 +233,7 @@ func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models
 		return
 	}
 
-	log.Printf("Meeting started: ID=%s, Topic=%s", meeting.ID, meeting.Topic)
+	log.Printf("Meeting started: ID=%s, Topic=%s", meeting.ID, utils.SanitizeLogString(meeting.Topic))
 
 	// Parse the standard event payload to access object properties
 	var payload models.StandardEventPayload

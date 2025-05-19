@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/navikt/zrooms/internal/config"
+	"github.com/navikt/zrooms/internal/utils"
 )
 
 // ZoomTokenResponse represents the response from Zoom's OAuth token endpoint
@@ -51,7 +52,7 @@ func OAuthRedirectHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Log the received OAuth callback
-	log.Printf("Received OAuth callback with code: %s", code)
+	log.Printf("Received OAuth callback with code: %s", utils.SanitizeLogString(code))
 
 	// Get configuration
 	zoomConfig := config.GetZoomConfig()
