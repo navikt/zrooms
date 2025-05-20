@@ -46,3 +46,7 @@ spec:
   env:
     - name: REDIS_ENABLED
       value: "true"
+  observability:
+    logging:
+      destinations:
+        - id: loki

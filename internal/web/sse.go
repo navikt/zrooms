@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -82,22 +83,26 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-
 	// Set required headers for SSE
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
+	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")                                // More explicit content type
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate, pre-check=0, post-check=0") // Stronger caching directives
+	w.Header().Set("Pragma", "no-cache")                                                              // Legacy cache control
+	w.Header().Set("Expires", "0")                                                                    // Force expired
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx proxy buffering
 
-	// Set appropriate timeouts for proxies
-	w.Header().Set("Keep-Alive", "timeout=60, max=1000")
+	// Set appropriate timeouts for proxies - set smaller timeouts for HTTP/1.1
+	if r.ProtoMajor == 1 {
+		// HTTP/1.1 specific keep-alive settings
+		w.Header().Set("Keep-Alive", "timeout=30, max=100")
+	} else {
+		// HTTP/2+ settings
+		w.Header().Set("Keep-Alive", "timeout=60, max=1000")
+	}
 
-	// Specific headers for handling HTTP/2 and QUIC protocols
+	// Specific headers to help with proxy behavior
 	w.Header().Set("Vary", "Accept-Encoding")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-
-	// Do NOT set Transfer-Encoding: chunked - can cause issues with HTTP/2 and QUIC
-	// HTTP/2 and HTTP/3 (QUIC) use their own framing mechanisms
 
 	// Log response headers for debugging
 	logResponseHeaders(w)
@@ -145,12 +150,25 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("SSE client disconnected: %s", clientID)
 	}()
 
-	// Write a few newlines to prime the connection
-	fmt.Fprintf(w, "\n\n")
+	// For HTTP/1.1, establish the connection with proper format
+	// This is important for some proxies and browsers
+	if r.ProtoMajor == 1 {
+		// HTTP/1.1 needs proper SSE format for some proxies
+		for i := 0; i < 10; i++ {
+			fmt.Fprintf(w, ": SSE connection setup comment %d\n\n", i)
+		}
+	} else {
+		// Just a few newlines for HTTP/2+
+		fmt.Fprintf(w, "\n\n")
+	}
 	flusher.Flush()
 
-	// Send initial connected event with retry directive
-	fmt.Fprintf(w, "retry: 5000\n") // 5 second retry (reduced from 10s)
+	// Send initial connected event with retry directive - use 3s for HTTP/1.1
+	if r.ProtoMajor == 1 {
+		fmt.Fprintf(w, "retry: 3000\n") // 3 second retry for HTTP/1.1
+	} else {
+		fmt.Fprintf(w, "retry: 5000\n") // 5 second retry for HTTP/2+
+	}
 	sse.Encode(w, sse.Event{
 		Event: "connected",
 		Data:  map[string]string{"id": clientID},
@@ -164,10 +182,27 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	flusher.Flush()
 
+	// For HTTP/1.1, send an additional ping right away to help establish the connection
+	if r.ProtoMajor == 1 {
+		// Immediate ping after the initial load
+		fmt.Fprintf(w, ": ping\n\n")
+		flusher.Flush()
+	}
+
 	// Set up heartbeat ticker to keep the connection alive
-	// Reduce heartbeat interval from 15 seconds to 5 seconds to prevent proxy timeouts
-	heartbeat := time.NewTicker(5 * time.Second)
+	// For HTTP/1.1, use more frequent heartbeats which is more appropriate for proxies
+	// For HTTP/2+, we can use a slightly longer interval
+	var heartbeatInterval time.Duration
+	if r.ProtoMajor == 1 {
+		// Even more frequent for HTTP/1.1 - this is crucial for proxies with aggressive timeouts
+		heartbeatInterval = 1 * time.Second
+	} else {
+		heartbeatInterval = 3 * time.Second // HTTP/2 can handle longer intervals
+	}
+	heartbeat := time.NewTicker(heartbeatInterval)
 	defer heartbeat.Stop()
+
+	log.Printf("Using %v heartbeat interval for %s protocol", heartbeatInterval, r.Proto)
 
 	// Create a notification channel for client context cancellation
 	done := r.Context().Done()
@@ -208,20 +243,51 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					}
 				}()
 
-				// Send a comment as a lightweight ping
-				_, err := fmt.Fprintf(w, ": heartbeat %s\n\n", timestamp)
-				if err != nil {
-					return fmt.Errorf("heartbeat write error: %w", err)
-				}
+				// For HTTP/1.1, we need to be more aggressive with keepalives
+				if r.ProtoMajor == 1 {
+					// Always send an actual event for HTTP/1.1 to help keep the connection alive
+					// Some proxies need real events, not just comments
 
-				// Send an actual event periodically
-				if time.Now().Unix()%10 == 0 {
-					err = sse.Encode(w, sse.Event{
+					// Add a comment line before the event for extra data over the wire
+					// This can help keep the connection alive with chatty proxies
+					_, commentErr := fmt.Fprintf(w, ": pre-keepalive comment %s\n\n", timestamp)
+					if commentErr != nil {
+						log.Printf("Warning: keepalive comment write error: %v", commentErr)
+						// Continue even if comment fails
+					}
+
+					// Then send a proper event with ID for resumability
+					err := sse.Encode(w, sse.Event{
+						Id:    fmt.Sprintf("ka-%d", time.Now().UnixNano()),
 						Event: "keepalive",
 						Data:  timestamp,
+						Retry: 1000, // 1 second retry hint - more aggressive for HTTP/1.1
 					})
 					if err != nil {
 						return fmt.Errorf("keepalive event write error: %w", err)
+					}
+
+					// For HTTP/1.1, add an extra empty comment line after events
+					// This has been shown to help with some problematic proxies
+					_, _ = fmt.Fprintf(w, ":\n\n")
+				} else {
+					// Just a comment for HTTP/2+
+					_, err := fmt.Fprintf(w, ": heartbeat %s\n\n", timestamp)
+					if err != nil {
+						return fmt.Errorf("heartbeat write error: %w", err)
+					}
+
+					// Send an actual event periodically for HTTP/2+
+					if time.Now().Unix()%10 == 0 {
+						err = sse.Encode(w, sse.Event{
+							Id:    fmt.Sprintf("ka-%d", time.Now().UnixNano()),
+							Event: "keepalive",
+							Data:  timestamp,
+							Retry: 3000, // 3 second retry hint for HTTP/2+
+						})
+						if err != nil {
+							return fmt.Errorf("keepalive event write error: %w", err)
+						}
 					}
 				}
 
@@ -367,13 +433,42 @@ func isEventStreamSupported(r *http.Request) bool {
 	accepts := r.Header.Get("Accept")
 
 	// Common accept headers that include event-stream
-	return accepts == "" || // Accept any content type
+	if accepts == "" || // Accept any content type
 		accepts == "*/*" || // Accept any content type
-		accepts == "text/event-stream" || // Explicitly accept event streams
-		contains(accepts, "text/event-stream") // Accept multiple types including event streams
+		accepts == "text/event-stream" { // Explicitly accept event stream
+		return true
+	}
+
+	// For complex Accept headers, properly parse each MIME type
+	mimeTypes := splitMimeTypes(accepts)
+	for _, mime := range mimeTypes {
+		if mime == "*/*" || mime == "text/event-stream" ||
+			mime == "text/*" {
+			return true
+		}
+	}
+
+	return false
 }
 
-// Helper function to check if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s != "" && (s == substr || s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || s[len(substr):] == substr)
+// Helper function to split Accept header into individual MIME types
+func splitMimeTypes(accepts string) []string {
+	// Split by comma, trim whitespace from each part
+	parts := strings.Split(accepts, ",")
+	mimeTypes := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		// Remove quality factor if present (;q=0.x)
+		if idx := strings.IndexByte(part, ';'); idx != -1 {
+			part = part[:idx]
+		}
+
+		// Trim whitespace and add to list if not empty
+		part = strings.TrimSpace(part)
+		if part != "" {
+			mimeTypes = append(mimeTypes, part)
+		}
+	}
+
+	return mimeTypes
 }

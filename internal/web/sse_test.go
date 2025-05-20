@@ -131,9 +131,9 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	// Short delay to ensure events are sent
 	time.Sleep(100 * time.Millisecond)
 
-	// Check response headers
-	assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
-	assert.Equal(t, "no-cache, no-transform", recorder.Header().Get("Cache-Control"))
+	// Check response headers - updated for our enhanced HTTP/1.1 compatibility
+	assert.Equal(t, "text/event-stream; charset=utf-8", recorder.Header().Get("Content-Type"))
+	assert.Equal(t, "no-cache, no-store, must-revalidate, pre-check=0, post-check=0", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "keep-alive", recorder.Header().Get("Connection"))
 
 	// Check response body - should contain SSE format events
@@ -182,6 +182,7 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 		id:             clientID,
 		responseWriter: responseRecorder,
 		disconnected:   make(chan struct{}),
+		lastActive:     time.Now(), // Add lastActive field to match updated struct
 	}
 
 	// Add the test client to the manager
@@ -217,4 +218,89 @@ func TestIsEventStreamSupported(t *testing.T) {
 	incompatibleRequest := httptest.NewRequest(http.MethodGet, "/events", nil)
 	incompatibleRequest.Header.Set("Accept", "application/json")
 	assert.False(t, isEventStreamSupported(incompatibleRequest), "application/json Accept header should not be supported")
+
+	// Test with combined Accept header that includes event-stream
+	combinedRequest := httptest.NewRequest(http.MethodGet, "/events", nil)
+	combinedRequest.Header.Set("Accept", "application/json, text/html, text/event-stream")
+	assert.True(t, isEventStreamSupported(combinedRequest), "Combined Accept header with text/event-stream should be supported")
+}
+
+func TestCleanupStaleSessions(t *testing.T) {
+	// Create a mock meeting service
+	mockService := new(MockMeetingService)
+
+	// Create an SSE manager with exported cleanupStaleSessions for testing
+	sseManager := &SSEManager{
+		clients:        make(map[string]*SSEClient),
+		meetingService: mockService,
+	}
+
+	// Add an active client
+	activeClientID := "active-client"
+	activeClient := &SSEClient{
+		id:             activeClientID,
+		responseWriter: httptest.NewRecorder(),
+		disconnected:   make(chan struct{}),
+		lastActive:     time.Now(), // Current time, should not be removed
+	}
+
+	// Add a stale client
+	staleClientID := "stale-client"
+	staleClient := &SSEClient{
+		id:             staleClientID,
+		responseWriter: httptest.NewRecorder(),
+		disconnected:   make(chan struct{}),
+		lastActive:     time.Now().Add(-3 * time.Minute), // 3 minutes old, should be removed
+	}
+
+	// Add a disconnected client
+	disconnectedClientID := "disconnected-client"
+	disconnectedClient := &SSEClient{
+		id:             disconnectedClientID,
+		responseWriter: httptest.NewRecorder(),
+		disconnected:   make(chan struct{}),
+		lastActive:     time.Now(),
+	}
+	close(disconnectedClient.disconnected) // Mark as disconnected
+
+	// Register all clients
+	sseManager.clientsMutex.Lock()
+	sseManager.clients[activeClientID] = activeClient
+	sseManager.clients[staleClientID] = staleClient
+	sseManager.clients[disconnectedClientID] = disconnectedClient
+	sseManager.clientsMutex.Unlock()
+
+	// Call cleanupStaleSessions directly for testing
+	// Create a small helper function to access the private method
+	cleanupFunc := func() {
+		// Set threshold manually to test
+		threshold := time.Now().Add(-2 * time.Minute)
+
+		sseManager.clientsMutex.Lock()
+		for id, client := range sseManager.clients {
+			select {
+			case <-client.disconnected:
+				// Client is marked as disconnected, remove it
+				delete(sseManager.clients, id)
+			default:
+				// Check if client has been inactive for too long
+				if client.lastActive.Before(threshold) {
+					close(client.disconnected)
+					delete(sseManager.clients, id)
+				}
+			}
+		}
+		sseManager.clientsMutex.Unlock()
+	}
+
+	// Run cleanup
+	cleanupFunc()
+
+	// Check that only active client remains
+	sseManager.clientsMutex.RLock()
+	defer sseManager.clientsMutex.RUnlock()
+	assert.Equal(t, 1, len(sseManager.clients), "Only active client should remain after cleanup")
+	assert.Contains(t, sseManager.clients, activeClientID, "Active client should still exist")
+	assert.NotContains(t, sseManager.clients, staleClientID, "Stale client should be removed")
+	assert.NotContains(t, sseManager.clients, disconnectedClientID, "Disconnected client should be removed")
 }

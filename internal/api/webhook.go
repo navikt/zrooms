@@ -48,6 +48,9 @@ func NewWebhookHandlerWithSecret(repo repository.Repository, meetingService Meet
 
 // ServeHTTP handles HTTP requests for the webhook endpoint
 func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Set common HTTP response headers for better proxy behavior
+	w.Header().Set("Connection", "close") // Explicitly close connection after response
+
 	// Only allow POST requests
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -115,9 +118,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		// Return the validation response as required by Zoom
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
 
-		// Use json.Marshal instead of json.NewEncoder to avoid unwanted newlines
+		// Calculate content length to help proxies
 		responseData, err := json.Marshal(map[string]string{
 			"plainToken":     validationPayload.PlainToken,
 			"encryptedToken": encryptedToken,
@@ -128,8 +130,15 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// Set content length explicitly to help proxies
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(responseData)))
+		w.WriteHeader(http.StatusOK)
+
 		// Write the response directly
-		w.Write(responseData)
+		_, err = w.Write(responseData)
+		if err != nil {
+			log.Printf("Error writing validation response: %v", err)
+		}
 
 		log.Printf("Successfully responded to Zoom URL validation challenge")
 		return
@@ -151,9 +160,14 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Always return success to Zoom
+	responseJSON := `{"success": true}`
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(responseJSON)))
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, `{"success": true}`)
+	_, err = w.Write([]byte(responseJSON)) // Use Write instead of Fprintf for more reliable handling
+	if err != nil {
+		log.Printf("Error writing webhook response: %v", err)
+	}
 }
 
 // verifyZoomWebhookSignature validates that the request is actually from Zoom
