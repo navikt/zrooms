@@ -379,6 +379,23 @@ func (r *Repository) ClearPartipantsInMeeting(ctx context.Context, meetingID str
 		return fmt.Errorf("failed to get meeting: %w", err)
 	}
 
+	// Delete the participant set in Redis
+	participantsKey := r.participantSetKey(meetingID)
+
+	// Check if the participants key exists before trying to delete it
+	exists, err := r.client.Exists(ctx, participantsKey).Result()
+	if err != nil {
+		return fmt.Errorf("failed to check if participants set exists: %w", err)
+	}
+
+	if exists > 0 {
+		// Delete the participants set
+		err = r.client.Del(ctx, participantsKey).Err()
+		if err != nil {
+			return fmt.Errorf("failed to clear participants: %w", err)
+		}
+	}
+
 	// Create a copy of the meeting with zero participants
 	meeting.Participants = []models.Participant{}
 

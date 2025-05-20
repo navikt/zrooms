@@ -11,12 +11,18 @@ func monitorRequest(r *http.Request) {
 	log.Printf("SSE REQUEST FROM: %s", r.RemoteAddr)
 	log.Printf("SSE REQUEST PROTOCOL: %s", r.Proto)
 	log.Printf("SSE REQUEST TLS: %v", r.TLS != nil)
+	log.Printf("SSE REQUEST URL: %s", r.URL.String())
+	log.Printf("SSE REQUEST HOST: %s", r.Host)
+	log.Printf("SSE REQUEST METHOD: %s", r.Method)
 
 	// Print important headers for debugging SSE connection issues
 	relevantHeaders := []string{
 		"Accept", "Connection", "User-Agent",
 		"Accept-Encoding", "X-Forwarded-For",
 		"X-Forwarded-Proto", "Upgrade",
+		"Origin", "Referer", "Cache-Control",
+		"Host", "X-Requested-With", "X-Real-IP",
+		"X-HX-Request",
 	}
 
 	log.Println("SSE REQUEST HEADERS:")

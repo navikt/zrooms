@@ -24,14 +24,51 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Add status indicator for SSE connection (always enabled)
-    document.body.addEventListener('htmx:sseOpen', function() {
-        console.log('SSE connection opened');
+    document.body.addEventListener('htmx:sseOpen', function(event) {
+        console.log('SSE connection opened', event);
         addConnectionIndicator('connected');
     });
     
-    document.body.addEventListener('htmx:sseError', function() {
-        console.log('SSE connection error');
+    document.body.addEventListener('htmx:sseError', function(event) {
+        console.error('SSE connection error', event);
         addConnectionIndicator('error');
+        
+        // After SSE fails, we'll fall back to polling which is set in the div attributes
+        console.log('Falling back to polling mechanism');
+        
+        // Try to diagnose the SSE issue
+        if (window.EventSource) {
+            console.log('Browser supports EventSource');
+            
+            // Check if the error is with Cross-Origin
+            const url = new URL(window.location.href);
+            console.log('Origin:', url.origin);
+            console.log('Expected SSE URL:', url.origin + '/events');
+            
+            // Try a manual EventSource connection to help diagnose
+            setTimeout(() => {
+                console.log('Attempting a direct EventSource connection for diagnostics...');
+                try {
+                    const manualSource = new EventSource('/events');
+                    manualSource.onopen = function() {
+                        console.log('Manual EventSource connected successfully');
+                        setTimeout(() => manualSource.close(), 2000);
+                    };
+                    manualSource.onerror = function(err) {
+                        console.error('Manual EventSource connection failed', err);
+                    };
+                } catch(err) {
+                    console.error('Error creating EventSource:', err);
+                }
+            }, 3000);
+        } else {
+            console.error('Browser does not support EventSource');
+        }
+    });
+    
+    // Listen for SSE messages for debugging
+    document.body.addEventListener('htmx:sseMessage', function(event) {
+        console.log('SSE Message received:', event);
     });
 });
 

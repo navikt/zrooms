@@ -16,13 +16,15 @@ We follow test-driven development (TDD):
 2. Implement the minimal code to pass the tests
 3. Refactor while keeping tests passing
 
+We solve one problem at a time confirming that the issue has been solved before moving on to the next.
+
 ## Technology Stack
 
 - **Language**: Go 1.24+
 - **Framework**: Go standard libraries
 - **Testing**: Go standard testing package with testify for assertions
 - **Database**: Valkey/Redis for storage to handle application state
-- **Web Interface**: HTML, CSS, and minimal JavaScript
+- **Web Interface**: HTML, CSS, HTMX and minimal JavaScript
 - **Webhook Integration**: Zoom API
 
 ## Project Structure
@@ -104,12 +106,10 @@ zrooms/
 
 ## Development Workflow
 
-1. Create feature branches from main
-2. Write tests first
-3. Implement code to pass tests
-4. Refactor as needed
-5. Submit pull requests for review
-6. Merge after approval and passing CI checks
+1. Write tests first
+2. Implement code to pass tests
+3. Refactor as needed
+4. Solve one issue at a time
 
 ## Deployment
 

@@ -6,8 +6,9 @@
          hx-get="/partial/meetings"
          hx-target="#meeting-list-container"
          hx-swap="innerHTML"
-         hx-trigger="sse:update from:body, sse:initial-load from:body"
-         hx-ext="sse" sse-connect="/events">
+         hx-trigger="sse:update from:body, sse:initial-load from:body, every:30s"
+         hx-ext="sse" sse-connect="{{if (eq .Hostname `localhost`)}}http://{{.Hostname}}:8080/events{{else}}https://{{.Hostname}}/events{{end}}"
+         sse-swap="none">
         {{template "meeting_list" .}}
     </div>
 </section>

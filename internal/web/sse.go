@@ -73,10 +73,16 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Enable detailed logging for debugging SSE connection issues
 	monitorRequest(r)
 
-	// Set CORS headers to make SSE work in various environments
-	w.Header().Set("Access-Control-Allow-Origin", "*")
+	// Set comprehensive CORS headers to make SSE work in various environments
+	// Use the actual origin if available to support credentials
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		origin = "*"
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
 
 	// Handle CORS preflight
 	if r.Method == "OPTIONS" {
@@ -154,33 +160,48 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// This is important for some proxies and browsers
 	if r.ProtoMajor == 1 {
 		// HTTP/1.1 needs proper SSE format for some proxies
-		for i := 0; i < 10; i++ {
+		// Start with lots of comments to help establish the connection
+		for i := 0; i < 20; i++ {
 			fmt.Fprintf(w, ": SSE connection setup comment %d\n\n", i)
+			flusher.Flush() // Flush after each comment for better proxy handling
 		}
 	} else {
 		// Just a few newlines for HTTP/2+
 		fmt.Fprintf(w, "\n\n")
+		flusher.Flush()
+	}
+
+	// Send retry directives before any events - critical for reconnection
+	if r.ProtoMajor == 1 {
+		fmt.Fprintf(w, "retry: 3000\n\n") // 3 second retry for HTTP/1.1
+	} else {
+		fmt.Fprintf(w, "retry: 5000\n\n") // 5 second retry for HTTP/2+
 	}
 	flusher.Flush()
 
-	// Send initial connected event with retry directive - use 3s for HTTP/1.1
-	if r.ProtoMajor == 1 {
-		fmt.Fprintf(w, "retry: 3000\n") // 3 second retry for HTTP/1.1
-	} else {
-		fmt.Fprintf(w, "retry: 5000\n") // 5 second retry for HTTP/2+
-	}
+	// Send initial connected event with ID for better reconnection support
+	eventID := fmt.Sprintf("%d", time.Now().UnixNano())
 	sse.Encode(w, sse.Event{
+		Id:    eventID,
 		Event: "connected",
 		Data:  map[string]string{"id": clientID},
 	})
 	flusher.Flush()
 
 	// Send a one-time initial load event (different from update events)
+	// Also include an ID for better reconnection support
 	sse.Encode(w, sse.Event{
+		Id:    fmt.Sprintf("%s-init", eventID),
 		Event: "initial-load",
 		Data:  "Load initial data",
 	})
 	flusher.Flush()
+
+	// Additional ping right away for HTTP/1.1 to help establish connection
+	if r.ProtoMajor == 1 {
+		fmt.Fprintf(w, ": ping\n\n")
+		flusher.Flush()
+	}
 
 	// For HTTP/1.1, send an additional ping right away to help establish the connection
 	if r.ProtoMajor == 1 {
@@ -207,6 +228,9 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Create a notification channel for client context cancellation
 	done := r.Context().Done()
 
+	// Keep track of client activity timing
+	lastClientActivity := time.Now()
+
 	// Keep the connection alive with periodic heartbeats
 	// Track consecutive failures
 	consecutiveErrors := 0
@@ -215,6 +239,10 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Track connection status
 	connectionHealthy := true
 
+	// Create a timeout ticker to detect stale connections
+	timeoutTicker := time.NewTicker(30 * time.Second)
+	defer timeoutTicker.Stop()
+
 	for {
 		select {
 		case <-done:
@@ -222,6 +250,14 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			log.Printf("Context done for client %s - clean shutdown", clientID)
 			close(disconnected)
 			return
+		case <-timeoutTicker.C:
+			// Check if the client has been inactive too long
+			if time.Since(lastClientActivity) > 90*time.Second {
+				log.Printf("Connection timeout for client %s - no activity for %v", clientID, 90*time.Second)
+				connectionHealthy = false
+				close(disconnected)
+				return
+			}
 		case <-heartbeat.C:
 			// If we've determined the connection is unhealthy, stop trying
 			if !connectionHealthy {
@@ -324,9 +360,11 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				consecutiveErrors = 0
 
 				// Update the client's last active time on successful write
+				lastClientActivity = time.Now()
+
 				sm.clientsMutex.Lock()
 				if client, exists := sm.clients[clientID]; exists {
-					client.lastActive = time.Now()
+					client.lastActive = lastClientActivity
 				}
 				sm.clientsMutex.Unlock()
 			}

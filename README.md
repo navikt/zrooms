@@ -100,6 +100,11 @@ Key components of the SSE implementation:
 - **Meeting Service Callbacks**: Notifies the SSE manager when meeting data changes
 - **Client-side JavaScript**: Processes SSE events and updates the UI dynamically
 
+## Documentation
+
+For more detailed information, please refer to these documents:
+- [Architecture Overview](docs/README.md) - Visual representation of the system architecture
+
 For browsers that don't support SSE, the application falls back to traditional page refreshes.
 
 ### Repository Layer

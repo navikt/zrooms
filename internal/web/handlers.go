@@ -81,15 +81,23 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Get hostname for SSE endpoint configuration
+	hostname := r.Host
+	if hostname == "" {
+		hostname = "localhost"
+	}
+
 	// Prepare view model
 	viewModel := struct {
 		Meetings    []service.MeetingStatusData
 		LastUpdated string
 		CurrentYear int
+		Hostname    string
 	}{
 		Meetings:    meetings,
 		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear: time.Now().Year(),
+		Hostname:    hostname,
 	}
 
 	// Render template
