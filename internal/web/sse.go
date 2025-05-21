@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -73,14 +74,68 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Enable detailed logging for debugging SSE connection issues
 	monitorRequest(r)
 
+	// Check for authentication cookies
+	cookies := r.Cookies()
+	hasCookies := len(cookies) > 0
+
+	// Log cookie count for debugging
+	log.Printf("SSE REQUEST COOKIE COUNT: %d", len(cookies))
+	if hasCookies {
+		cookieNames := make([]string, 0, len(cookies))
+		for _, cookie := range cookies {
+			cookieNames = append(cookieNames, cookie.Name)
+		}
+		log.Printf("SSE REQUEST COOKIE NAMES: %v", cookieNames)
+	} else {
+		log.Printf("WARNING: No cookies found in SSE request - this may cause authentication issues")
+	}
+
 	// Set comprehensive CORS headers to make SSE work in various environments
-	// Use the actual origin if available to support credentials
+	// Always use the actual origin if available to support credentials
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		origin = "*"
+		// Fall back to Referer header if Origin is not set
+		referer := r.Header.Get("Referer")
+		if referer != "" {
+			if refererURL, err := url.Parse(referer); err == nil {
+				origin = fmt.Sprintf("%s://%s", refererURL.Scheme, refererURL.Host)
+				log.Printf("Using origin from Referer: %s", origin)
+			}
+		}
+
+		// If still empty, check Host header
+		if origin == "" {
+			host := r.Header.Get("Host")
+			if host != "" {
+				// Try to determine if request was over HTTPS
+				scheme := "http"
+				if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+					scheme = "https"
+				}
+				origin = fmt.Sprintf("%s://%s", scheme, host)
+				log.Printf("Using origin from Host: %s", origin)
+			} else {
+				// Last resort - allow any origin but log warning
+				origin = "*"
+				log.Printf("Warning: Using wildcard origin for CORS")
+			}
+		}
 	}
+
+	// Don't use wildcard origin when credentials are needed
+	if origin == "*" && hasCookies {
+		// When cookies are present, we must specify an explicit origin
+		host := r.Host
+		scheme := "https"
+		if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
+			scheme = "http"
+		}
+		origin = fmt.Sprintf("%s://%s", scheme, host)
+		log.Printf("Adjusted origin for credentials: %s", origin)
+	}
+
 	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Requested-With, Cookie, Authorization")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 

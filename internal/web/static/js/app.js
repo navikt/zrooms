@@ -49,7 +49,7 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(() => {
                 console.log('Attempting a direct EventSource connection for diagnostics...');
                 try {
-                    const manualSource = new EventSource('/events');
+                    const manualSource = new EventSource('/events', { withCredentials: true });
                     manualSource.onopen = function() {
                         console.log('Manual EventSource connected successfully');
                         setTimeout(() => manualSource.close(), 2000);

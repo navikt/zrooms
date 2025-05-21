@@ -8,7 +8,9 @@
          hx-swap="innerHTML"
          hx-trigger="sse:update from:body, sse:initial-load from:body, every:30s"
          hx-ext="sse" sse-connect="{{if (eq .Hostname `localhost`)}}http://{{.Hostname}}:8080/events{{else}}https://{{.Hostname}}/events{{end}}"
-         sse-swap="none">
+         hx-headers='{"X-Requested-With": "XMLHttpRequest", "Cookie": document.cookie}'
+         sse-swap="none" 
+         sse-with-credentials="true">
         {{template "meeting_list" .}}
     </div>
 </section>

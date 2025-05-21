@@ -40,7 +40,8 @@
             const url = new URL(state.eventSourceUrl, state.baseUrl);
             log("Attempting manual EventSource connection to", url.toString());
 
-            const es = new EventSource(url.toString());
+            // Initialize EventSource with withCredentials option to send cookies
+            const es = new EventSource(url.toString(), { withCredentials: true });
             
             es.onopen = function() {
                 log("Manual EventSource connected successfully");

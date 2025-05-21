@@ -17,6 +17,8 @@ We follow test-driven development (TDD):
 3. Refactor while keeping tests passing
 
 We solve one problem at a time confirming that the issue has been solved before moving on to the next.
+Documentation will be updated once we have confirmed we have a working solution, not while debugging.
+Debugging code will not be a part of the final codebase.
 
 ## Technology Stack
 
