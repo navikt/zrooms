@@ -87,7 +87,7 @@ func TestSSEServeHTTP_CORSPreflight(t *testing.T) {
 
 	// Check that CORS headers are set
 	assert.Equal(t, "*", recorder.Header().Get("Access-Control-Allow-Origin"))
-	assert.Equal(t, "Content-Type", recorder.Header().Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, "Content-Type, X-Requested-With, Cookie, Authorization", recorder.Header().Get("Access-Control-Allow-Headers"))
 	assert.Equal(t, "GET, OPTIONS", recorder.Header().Get("Access-Control-Allow-Methods"))
 
 	// Check that status is OK
