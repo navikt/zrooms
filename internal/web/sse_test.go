@@ -143,7 +143,7 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
 	assert.Equal(t, "no-cache, no-transform", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "keep-alive", recorder.Header().Get("Connection"))
-	
+
 	// Check CORS headers to ensure credentials are allowed
 	assert.Equal(t, "http://example.com", recorder.Header().Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "true", recorder.Header().Get("Access-Control-Allow-Credentials"))

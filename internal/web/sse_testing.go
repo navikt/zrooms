@@ -17,9 +17,9 @@ func monitorRequest(r *http.Request) {
 		"Accept", "Connection", "User-Agent",
 		"Accept-Encoding", "X-Forwarded-For",
 		"X-Forwarded-Proto", "Upgrade",
-		"Cookie", "Authorization", "Origin",
+		"Origin",
 	}
-	
+
 	// Check for credentials
 	hasCookies := len(r.Cookies()) > 0
 	hasAuth := r.Header.Get("Authorization") != ""
