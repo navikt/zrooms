@@ -73,8 +73,24 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	monitorRequest(r)
 
 	// Set CORS headers to make SSE work in various environments
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	// Use specific origin instead of wildcard (*) to allow credentials
+	origin := r.Header.Get("Origin")
+	if origin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+	} else {
+		// In production environments, we should have a list of allowed origins
+		// For local development or testing, we'll use the host as fallback
+		proto := "http"
+		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+			proto = "https"
+		}
+		// Create a fallback origin from the request host
+		fallbackOrigin := proto + "://" + r.Host
+		w.Header().Set("Access-Control-Allow-Origin", fallbackOrigin)
+		log.Printf("Warning: Origin header not set in SSE request, using fallback: %s", fallbackOrigin)
+	}
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 
 	// Handle CORS preflight

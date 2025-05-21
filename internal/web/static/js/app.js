@@ -24,14 +24,19 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     // Add status indicator for SSE connection (always enabled)
-    document.body.addEventListener('htmx:sseOpen', function() {
-        console.log('SSE connection opened');
+    document.body.addEventListener('htmx:sseOpen', function(event) {
+        console.log('SSE connection opened', event.detail);
         addConnectionIndicator('connected');
     });
     
-    document.body.addEventListener('htmx:sseError', function() {
-        console.log('SSE connection error');
+    document.body.addEventListener('htmx:sseError', function(event) {
+        console.log('SSE connection error', event.detail);
         addConnectionIndicator('error');
+    });
+
+    // Log when the SSE connection is being initialized
+    document.body.addEventListener('htmx:sseInit', function(event) {
+        console.log('SSE connection initializing with credentials', event.detail);
     });
 });
 

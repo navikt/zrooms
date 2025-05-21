@@ -17,7 +17,13 @@ func monitorRequest(r *http.Request) {
 		"Accept", "Connection", "User-Agent",
 		"Accept-Encoding", "X-Forwarded-For",
 		"X-Forwarded-Proto", "Upgrade",
+		"Cookie", "Authorization", "Origin",
 	}
+	
+	// Check for credentials
+	hasCookies := len(r.Cookies()) > 0
+	hasAuth := r.Header.Get("Authorization") != ""
+	log.Printf("SSE REQUEST CREDENTIALS: cookies=%v auth-header=%v", hasCookies, hasAuth)
 
 	log.Println("SSE REQUEST HEADERS:")
 	for _, header := range relevantHeaders {

@@ -81,13 +81,15 @@ func TestSSEServeHTTP_CORSPreflight(t *testing.T) {
 
 	// Create an OPTIONS request for CORS preflight
 	request := httptest.NewRequest(http.MethodOptions, "/events", nil)
+	request.Header.Set("Origin", "http://example.com")
 
 	// Serve the request
 	sseManager.ServeHTTP(recorder, request)
 
 	// Check that CORS headers are set
-	assert.Equal(t, "*", recorder.Header().Get("Access-Control-Allow-Origin"))
-	assert.Equal(t, "Content-Type", recorder.Header().Get("Access-Control-Allow-Headers"))
+	assert.Equal(t, "http://example.com", recorder.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "true", recorder.Header().Get("Access-Control-Allow-Credentials"))
+	assert.Equal(t, "Content-Type, Authorization, Cookie", recorder.Header().Get("Access-Control-Allow-Headers"))
 	assert.Equal(t, "GET, OPTIONS", recorder.Header().Get("Access-Control-Allow-Methods"))
 
 	// Check that status is OK
@@ -118,6 +120,12 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	// Create a GET request with Accept header set for event-stream
 	request := httptest.NewRequest(http.MethodGet, "/events", nil).WithContext(ctx)
 	request.Header.Set("Accept", "text/event-stream")
+	request.Header.Set("Origin", "http://example.com")
+	// Add a test cookie to simulate credentials
+	request.AddCookie(&http.Cookie{
+		Name:  "test_auth",
+		Value: "test_value",
+	})
 
 	// Create a done channel to simulate disconnection after checking events
 	done := make(chan struct{})
@@ -135,6 +143,10 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
 	assert.Equal(t, "no-cache, no-transform", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "keep-alive", recorder.Header().Get("Connection"))
+	
+	// Check CORS headers to ensure credentials are allowed
+	assert.Equal(t, "http://example.com", recorder.Header().Get("Access-Control-Allow-Origin"))
+	assert.Equal(t, "true", recorder.Header().Get("Access-Control-Allow-Credentials"))
 
 	// Check response body - should contain SSE format events
 	responseBody := recorder.Body.String()
