@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-contrib/sse"
 	"github.com/navikt/zrooms/internal/models"
 )
 
@@ -179,17 +178,13 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Send initial connected event with retry directive
 	fmt.Fprintf(w, "retry: 5000\n") // 5 second retry (reduced from 10s)
-	sse.Encode(w, sse.Event{
-		Event: "connected",
-		Data:  map[string]string{"id": clientID},
-	})
+	fmt.Fprintf(w, "event: connected\n")
+	fmt.Fprintf(w, "data: {\"id\":\"%s\"}\n\n", clientID)
 	flusher.Flush()
 
 	// Send a one-time initial load event (different from update events)
-	sse.Encode(w, sse.Event{
-		Event: "initial-load",
-		Data:  "Load initial data",
-	})
+	fmt.Fprintf(w, "event: initial-load\n")
+	fmt.Fprintf(w, "data: Load initial data\n\n")
 	flusher.Flush()
 
 	// Immediately send a heartbeat after connection is established
@@ -314,12 +309,14 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 			}
 
 			// Send the event - this will trigger the htmx request via hx-trigger="sse:update"
-			err = sse.Encode(c.responseWriter, sse.Event{
-				Id:    eventID,
-				Event: "update",
-				Data:  "Update available", // Simple message - htmx will use the trigger
-			})
-
+			_, err = fmt.Fprintf(c.responseWriter, "id: %s\n", eventID)
+			if err == nil {
+				_, err = fmt.Fprintf(c.responseWriter, "event: update\n")
+			}
+			if err == nil {
+				_, err = fmt.Fprintf(c.responseWriter, "data: Update available\n\n")
+			}
+			
 			if err != nil {
 				log.Printf("Error sending SSE event to client %s: %v", clientID, err)
 				disconnectedClients = append(disconnectedClients, clientID)

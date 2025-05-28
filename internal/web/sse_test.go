@@ -152,12 +152,12 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	responseBody := recorder.Body.String()
 	t.Logf("Response body: %s", responseBody)
 
-	// The SSE format from gin-contrib/sse has "event:eventname" without space
-	assert.Contains(t, responseBody, "event:connected")
-	assert.Contains(t, responseBody, "event:initial-load")
+	// The correct SSE format has "event: eventname" with space after colon
+	assert.Contains(t, responseBody, "event: connected")
+	assert.Contains(t, responseBody, "event: initial-load")
 
 	// The data should include client ID for the connected event
-	assert.Contains(t, responseBody, `data:{"id":`)
+	assert.Contains(t, responseBody, `data: {"id":`)
 
 	// With HTMX implementation, the initial-load event should contain the expected data
 	assert.Contains(t, responseBody, `Load initial data`)
@@ -206,7 +206,7 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 
 	// Check that the client received the update event
 	responseBody := responseRecorder.Body.String()
-	assert.Contains(t, responseBody, "event:update")
+	assert.Contains(t, responseBody, "event: update")
 	assert.Contains(t, responseBody, "Update available")
 }
 
