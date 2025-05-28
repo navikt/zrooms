@@ -74,64 +74,23 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	// Enable detailed logging for debugging SSE connection issues
-	monitorRequest(r)
+	// Set simple SSE headers like NAIS API does
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("Content-Type", "text/event-stream")
 
-	// Set CORS headers to make SSE work in various environments
-	// Use specific origin instead of wildcard (*) to allow credentials
+	// Add minimal CORS support (tests expect these)
 	origin := r.Header.Get("Origin")
 	if origin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
-	} else {
-		// In production environments, we should have a list of allowed origins
-		// For local development or testing, we'll use the host as fallback
-		proto := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			proto = "https"
-		}
-		// Create a fallback origin from the request host
-		fallbackOrigin := proto + "://" + r.Host
-		w.Header().Set("Access-Control-Allow-Origin", fallbackOrigin)
-		log.Printf("Warning: Origin header not set in SSE request, using fallback: %s", fallbackOrigin)
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 	}
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 
 	// Handle CORS preflight
 	if r.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	// Set required headers for SSE
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx proxy buffering
-
-	// Set appropriate timeouts for proxies
-	w.Header().Set("Keep-Alive", "timeout=60, max=1000")
-
-	// CRITICAL FIX: Prevent HTTP/3 QUIC protocol errors in cloud environments
-	// These headers force HTTP/1.1 semantics and prevent protocol upgrade attempts
-	w.Header().Set("Alt-Svc", "clear")  // Explicitly disable HTTP/3 QUIC advertising
-	w.Header().Set("Vary", "Accept-Encoding")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	
-	// Additional headers to prevent protocol issues in GCP/K8s environments
-	w.Header().Set("X-Force-HTTP1", "true")  // Custom header for load balancers
-	w.Header().Set("Upgrade", "")  // Clear any upgrade headers
-	
-	// Ensure no chunked encoding which can cause issues with proxies
-	w.Header().Set("Transfer-Encoding", "identity")
-
-	// Log response headers for debugging
-	logResponseHeaders(w)
-
-	// Check if client accepts SSE
-	if !isEventStreamSupported(r) {
-		http.Error(w, "This endpoint requires EventStream support", http.StatusNotAcceptable)
 		return
 	}
 
@@ -141,11 +100,10 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
 		return
 	}
+	defer flusher.Flush()
 
 	// Generate a client ID
 	clientID := fmt.Sprintf("%d", time.Now().UnixNano())
-
-	// Log the new connection
 	log.Printf("SSE client connected: %s from %s", clientID, r.RemoteAddr)
 
 	// Create a channel for detecting client disconnects
@@ -172,171 +130,113 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		log.Printf("SSE client disconnected: %s", clientID)
 	}()
 
-	// Write a few newlines to prime the connection
-	fmt.Fprintf(w, "\n\n")
+	// Send initial SSE comment to prime the connection (like NAIS API)
+	fmt.Fprint(w, ":\n\n")
 	flusher.Flush()
 
-	// Send initial connected event with retry directive
-	fmt.Fprintf(w, "retry: 5000\n") // 5 second retry (reduced from 10s)
+	// Send initial connected event
 	fmt.Fprintf(w, "event: connected\n")
 	fmt.Fprintf(w, "data: {\"id\":\"%s\"}\n\n", clientID)
 	flusher.Flush()
 
-	// Send a one-time initial load event (different from update events)
+	// Send initial load event
 	fmt.Fprintf(w, "event: initial-load\n")
 	fmt.Fprintf(w, "data: Load initial data\n\n")
 	flusher.Flush()
 
-	// Immediately send a heartbeat after connection is established
-	timestamp := time.Now().Format(time.RFC3339)
-	fmt.Fprintf(w, ": heartbeat %s\n\n", timestamp)
-	flusher.Flush()
-
-	// Set up heartbeat ticker to keep the connection alive
-	// Make heartbeat interval more aggressive (every 2 seconds)
-	heartbeat := time.NewTicker(2 * time.Second)
+	// Set up simple heartbeat like NAIS API (every 10 seconds)
+	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
 
-	// Create a notification channel for client context cancellation
-	done := r.Context().Done()
+	// Create a notification channel for detecting client disconnects
+	// Use a context that doesn't inherit from the request context to avoid premature timeouts
+	done := make(chan struct{})
 
-	// Keep the connection alive with periodic heartbeats
-	consecutiveErrors := 0
-	maxConsecutiveErrors := 3
-	connectionHealthy := true
+	// Start a goroutine to detect when the client disconnects
+	go func() {
+		<-r.Context().Done()
+		close(done)
+	}()
 
+	// Keep the connection alive
 	for {
 		select {
 		case <-done:
-			// Client disconnected
-			log.Printf("Context done for client %s - clean shutdown", clientID)
-			close(disconnected)
+			log.Printf("Request context done for client %s - clean shutdown", clientID)
 			return
 		case <-heartbeat.C:
-			if !connectionHealthy {
-				log.Printf("Connection marked as unhealthy for client %s - stopping", clientID)
-				close(disconnected)
+			// Check if we need to send a heartbeat
+			// Use the client's lastActive time (which gets updated when real messages are sent)
+			sm.clientsMutex.RLock()
+			currentClient, exists := sm.clients[clientID]
+			if !exists {
+				sm.clientsMutex.RUnlock()
+				log.Printf("Client %s no longer exists, stopping heartbeat", clientID)
 				return
 			}
+			lastActive := currentClient.lastActive
+			sm.clientsMutex.RUnlock()
 
-			timestamp := time.Now().Format(time.RFC3339)
-			// Send a comment as a lightweight ping
-			_, err := fmt.Fprintf(w, ": heartbeat %s\n\n", timestamp)
-			if err != nil {
-				consecutiveErrors++
-				log.Printf("Error sending heartbeat to client %s: %v (failures: %d/%d)",
-					clientID, err, consecutiveErrors, maxConsecutiveErrors)
-				if consecutiveErrors >= maxConsecutiveErrors {
-					log.Printf("Too many consecutive errors for client %s, marking connection as unhealthy", clientID)
-					connectionHealthy = false
-					close(disconnected)
+			// Only send heartbeat if no message sent in last 30 seconds (like NAIS API)
+			if time.Since(lastActive) > 30*time.Second {
+				_, err := fmt.Fprint(w, ":\n\n")
+				if err != nil {
+					log.Printf("Error sending heartbeat to client %s: %v", clientID, err)
 					return
 				}
-			} else {
-				consecutiveErrors = 0
-				sm.clientsMutex.Lock()
-				if client, exists := sm.clients[clientID]; exists {
-					client.lastActive = time.Now()
-				}
-				sm.clientsMutex.Unlock()
-			}
-			// Always flush after sending heartbeat
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("Flush panic recovered: %v", r)
-					}
-				}()
 				flusher.Flush()
-			}()
+			}
+		case <-disconnected:
+			log.Printf("Client %s disconnected", clientID)
+			return
 		}
 	}
 }
 
 // NotifyMeetingUpdate sends meeting updates to all connected clients
 func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
-	// Log the event being published for debugging
 	log.Printf("Publishing SSE update event for meeting %s", meeting.ID)
 
-	// Generate a unique event ID based on current timestamp
-	eventID := fmt.Sprintf("%d", time.Now().UnixNano())
-
 	// Count active clients for logging
-	clientCount := 0
 	sm.clientsMutex.RLock()
-	for range sm.clients {
-		clientCount++
-	}
+	clientCount := len(sm.clients)
 	sm.clientsMutex.RUnlock()
 	log.Printf("Notifying %d active clients about meeting update", clientCount)
 
-	// Publish the event to all clients
+	// Send simple trigger event to all clients (HTMX pattern)
 	sm.clientsMutex.RLock()
+	defer sm.clientsMutex.RUnlock()
 
-	// Create a list to track clients that need to be removed
 	var disconnectedClients []string
 
 	for id, client := range sm.clients {
 		// Check if client is still connected
 		select {
 		case <-client.disconnected:
-			// Client has disconnected but not been removed yet
 			disconnectedClients = append(disconnectedClients, id)
 			continue
 		default:
-			// Client is still connected
+			// Client is still connected, send the update
 		}
 
-		// Use a separate function to handle errors for each client
-		// This prevents errors with one client from affecting others
-		func(clientID string, c *SSEClient) {
-			defer func() {
-				// Recover from panics that might occur when writing to closed connections
-				if r := recover(); r != nil {
-					log.Printf("Recovered from panic sending SSE to client %s: %v", clientID, r)
-					// Mark client as disconnected if there was a panic
-					disconnectedClients = append(disconnectedClients, clientID)
-				}
-			}()
+		// Send simple SSE event that triggers HTMX to make a new request
+		_, err := fmt.Fprintf(client.responseWriter, "event: update\ndata: trigger\n\n")
+		if err != nil {
+			log.Printf("Error sending SSE event to client %s: %v", id, err)
+			disconnectedClients = append(disconnectedClients, id)
+			continue
+		}
 
-			// Add SSE comment line as keepalive before the event
-			// This helps maintain the connection and prevents protocol errors
-			_, err := fmt.Fprintf(c.responseWriter, ": update-keepalive %s\n\n", time.Now().Format(time.RFC3339))
-			if err != nil {
-				log.Printf("Error sending keepalive to client %s: %v", clientID, err)
-				disconnectedClients = append(disconnectedClients, clientID)
-				return
-			}
-
-			// Send the event - this will trigger the htmx request via hx-trigger="sse:update"
-			_, err = fmt.Fprintf(c.responseWriter, "id: %s\n", eventID)
-			if err == nil {
-				_, err = fmt.Fprintf(c.responseWriter, "event: update\n")
-			}
-			if err == nil {
-				_, err = fmt.Fprintf(c.responseWriter, "data: Update available\n\n")
-			}
-			
-			if err != nil {
-				log.Printf("Error sending SSE event to client %s: %v", clientID, err)
-				disconnectedClients = append(disconnectedClients, clientID)
-				return
-			}
-
-			// Flush the response writer to ensure data is sent immediately
-			if f, ok := c.responseWriter.(http.Flusher); ok {
-				f.Flush()
-
-				// Update client's last active time on successful flush
-				c.lastActive = time.Now()
-			}
-		}(id, client)
+		// Flush immediately and update client activity
+		if f, ok := client.responseWriter.(http.Flusher); ok {
+			f.Flush()
+			client.lastActive = time.Now()
+		}
 	}
 
-	sm.clientsMutex.RUnlock()
-
-	// Clean up any clients that were identified as disconnected
+	// Clean up disconnected clients
 	if len(disconnectedClients) > 0 {
+		sm.clientsMutex.RUnlock()
 		sm.clientsMutex.Lock()
 		for _, id := range disconnectedClients {
 			if client, exists := sm.clients[id]; exists {
@@ -346,6 +246,7 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 			}
 		}
 		sm.clientsMutex.Unlock()
+		sm.clientsMutex.RLock()
 	}
 }
 

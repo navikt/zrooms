@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
+	"github.com/navikt/zrooms/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 )
@@ -35,6 +36,11 @@ func (m *MockMeetingService) UpdateMeeting(meeting *models.Meeting) error {
 func (m *MockMeetingService) DeleteMeeting(id string) error {
 	args := m.Called(id)
 	return args.Error(0)
+}
+
+func (m *MockMeetingService) GetMeetingStatusData(ctx context.Context, includeEnded bool) ([]service.MeetingStatusData, error) {
+	args := m.Called(ctx, includeEnded)
+	return args.Get(0).([]service.MeetingStatusData), args.Error(1)
 }
 
 // CreateTestMeeting creates a sample meeting for testing
@@ -141,7 +147,7 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 
 	// Check response headers
 	assert.Equal(t, "text/event-stream", recorder.Header().Get("Content-Type"))
-	assert.Equal(t, "no-cache, no-transform", recorder.Header().Get("Cache-Control"))
+	assert.Equal(t, "no-cache", recorder.Header().Get("Cache-Control"))
 	assert.Equal(t, "keep-alive", recorder.Header().Get("Connection"))
 
 	// Check CORS headers to ensure credentials are allowed
@@ -180,9 +186,6 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 	// Create test meeting data
 	meeting := CreateTestMeeting()
 
-	// In our HTMX implementation, we don't use GetAllMeetings anymore
-	// mockService.On("GetAllMeetings").Return(meetings, nil)
-
 	// Create an SSE manager
 	sseManager := NewSSEManager(mockService)
 
@@ -194,6 +197,7 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 		id:             clientID,
 		responseWriter: responseRecorder,
 		disconnected:   make(chan struct{}),
+		lastActive:     time.Now(),
 	}
 
 	// Add the test client to the manager
@@ -204,10 +208,10 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 	// Call NotifyMeetingUpdate
 	sseManager.NotifyMeetingUpdate(meeting)
 
-	// Check that the client received the update event
+	// Check that the client received the update event with simple trigger data
 	responseBody := responseRecorder.Body.String()
 	assert.Contains(t, responseBody, "event: update")
-	assert.Contains(t, responseBody, "Update available")
+	assert.Contains(t, responseBody, "data: trigger")
 }
 
 func TestIsEventStreamSupported(t *testing.T) {
