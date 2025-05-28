@@ -53,6 +53,9 @@ func main() {
 	// Set up web UI routes
 	webHandler.SetupRoutes(mux)
 
+	// Wrap the mux with middleware to prevent QUIC protocol issues
+	handler := web.WrapMuxWithMiddleware(mux)
+
 	// Get port from environment variable or use default
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -62,7 +65,7 @@ func main() {
 	// Configure the HTTP server
 	server := &http.Server{
 		Addr:         ":" + port,
-		Handler:      mux,
+		Handler:      handler, // Use the wrapped handler instead of mux
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,

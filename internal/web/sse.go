@@ -114,12 +114,18 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Set appropriate timeouts for proxies
 	w.Header().Set("Keep-Alive", "timeout=60, max=1000")
 
-	// Specific headers for handling HTTP/2 and QUIC protocols
+	// CRITICAL FIX: Prevent HTTP/3 QUIC protocol errors in cloud environments
+	// These headers force HTTP/1.1 semantics and prevent protocol upgrade attempts
+	w.Header().Set("Alt-Svc", "clear")  // Explicitly disable HTTP/3 QUIC advertising
 	w.Header().Set("Vary", "Accept-Encoding")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-
-	// Do NOT set Transfer-Encoding: chunked - can cause issues with HTTP/2 and QUIC
-	// HTTP/2 and HTTP/3 (QUIC) use their own framing mechanisms
+	
+	// Additional headers to prevent protocol issues in GCP/K8s environments
+	w.Header().Set("X-Force-HTTP1", "true")  // Custom header for load balancers
+	w.Header().Set("Upgrade", "")  // Clear any upgrade headers
+	
+	// Ensure no chunked encoding which can cause issues with proxies
+	w.Header().Set("Transfer-Encoding", "identity")
 
 	// Log response headers for debugging
 	logResponseHeaders(w)
