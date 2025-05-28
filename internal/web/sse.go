@@ -69,6 +69,12 @@ func (sm *SSEManager) cleanupStaleSessions() {
 
 // ServeHTTP implements the http.Handler interface for SSE connections
 func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("PANIC in SSE ServeHTTP: %v", rec)
+		}
+	}()
+
 	// Enable detailed logging for debugging SSE connection issues
 	monitorRequest(r)
 
@@ -180,20 +186,22 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	})
 	flusher.Flush()
 
+	// Immediately send a heartbeat after connection is established
+	timestamp := time.Now().Format(time.RFC3339)
+	fmt.Fprintf(w, ": heartbeat %s\n\n", timestamp)
+	flusher.Flush()
+
 	// Set up heartbeat ticker to keep the connection alive
-	// Reduce heartbeat interval from 15 seconds to 5 seconds to prevent proxy timeouts
-	heartbeat := time.NewTicker(5 * time.Second)
+	// Make heartbeat interval more aggressive (every 2 seconds)
+	heartbeat := time.NewTicker(2 * time.Second)
 	defer heartbeat.Stop()
 
 	// Create a notification channel for client context cancellation
 	done := r.Context().Done()
 
 	// Keep the connection alive with periodic heartbeats
-	// Track consecutive failures
 	consecutiveErrors := 0
 	maxConsecutiveErrors := 3
-
-	// Track connection status
 	connectionHealthy := true
 
 	for {
@@ -204,65 +212,19 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			close(disconnected)
 			return
 		case <-heartbeat.C:
-			// If we've determined the connection is unhealthy, stop trying
 			if !connectionHealthy {
 				log.Printf("Connection marked as unhealthy for client %s - stopping", clientID)
 				close(disconnected)
 				return
 			}
 
-			// Attempt to send heartbeat with proper error handling
 			timestamp := time.Now().Format(time.RFC3339)
-
-			// Function to safely attempt writes and handle errors
-			attemptWrite := func() error {
-				// Try-catch equivalent for safer writes
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("Recovered from panic in SSE write: %v", r)
-						consecutiveErrors++
-					}
-				}()
-
-				// Send a comment as a lightweight ping
-				_, err := fmt.Fprintf(w, ": heartbeat %s\n\n", timestamp)
-				if err != nil {
-					return fmt.Errorf("heartbeat write error: %w", err)
-				}
-
-				// Send an actual event periodically
-				if time.Now().Unix()%10 == 0 {
-					err = sse.Encode(w, sse.Event{
-						Event: "keepalive",
-						Data:  timestamp,
-					})
-					if err != nil {
-						return fmt.Errorf("keepalive event write error: %w", err)
-					}
-				}
-
-				// Try to flush, but don't fail if it doesn't work
-				// Some proxies might handle the flush differently
-				safeFlush := func() {
-					defer func() {
-						if r := recover(); r != nil {
-							log.Printf("Flush panic recovered: %v", r)
-						}
-					}()
-					flusher.Flush()
-				}
-
-				safeFlush()
-				return nil
-			}
-
-			// Try to write and track errors
-			if err := attemptWrite(); err != nil {
+			// Send a comment as a lightweight ping
+			_, err := fmt.Fprintf(w, ": heartbeat %s\n\n", timestamp)
+			if err != nil {
 				consecutiveErrors++
 				log.Printf("Error sending heartbeat to client %s: %v (failures: %d/%d)",
 					clientID, err, consecutiveErrors, maxConsecutiveErrors)
-
-				// If we've had too many consecutive failures, close the connection
 				if consecutiveErrors >= maxConsecutiveErrors {
 					log.Printf("Too many consecutive errors for client %s, marking connection as unhealthy", clientID)
 					connectionHealthy = false
@@ -270,16 +232,22 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 			} else {
-				// Reset consecutive errors on success
 				consecutiveErrors = 0
-
-				// Update the client's last active time on successful write
 				sm.clientsMutex.Lock()
 				if client, exists := sm.clients[clientID]; exists {
 					client.lastActive = time.Now()
 				}
 				sm.clientsMutex.Unlock()
 			}
+			// Always flush after sending heartbeat
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						log.Printf("Flush panic recovered: %v", r)
+					}
+				}()
+				flusher.Flush()
+			}()
 		}
 	}
 }
