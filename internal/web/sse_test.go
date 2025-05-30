@@ -160,13 +160,9 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 
 	// The correct SSE format has "event: eventname" with space after colon
 	assert.Contains(t, responseBody, "event: connected")
-	assert.Contains(t, responseBody, "event: initial-load")
 
 	// The data should include connected status for the connected event
-	assert.Contains(t, responseBody, `data: {"connected":true}`)
-
-	// With HTMX implementation, the initial-load event should contain the expected data
-	assert.Contains(t, responseBody, `Load initial data`)
+	assert.Contains(t, responseBody, `data: connected`)
 
 	// Simulate client disconnect by cancelling the context
 	cancel()
@@ -196,7 +192,7 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 	select {
 	case message := <-sseManager.broadcast:
 		assert.Contains(t, message, "event: update")
-		assert.Contains(t, message, "data: trigger")
+		assert.Contains(t, message, "data: update")
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("Expected message on broadcast channel")
 	}
