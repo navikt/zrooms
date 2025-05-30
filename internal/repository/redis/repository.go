@@ -373,15 +373,21 @@ func (r *Repository) CountParticipantsInMeeting(ctx context.Context, meetingID s
 }
 
 func (r *Repository) ClearPartipantsInMeeting(ctx context.Context, meetingID string) error {
-	// Attempt to fetch the meeting
-	meeting, err := r.GetMeeting(ctx, meetingID)
+	// Check if the meeting exists
+	exists, err := r.client.Exists(ctx, r.meetingKey(meetingID)).Result()
 	if err != nil {
-		return fmt.Errorf("failed to get meeting: %w", err)
+		return fmt.Errorf("failed to check if meeting exists: %w", err)
+	}
+	if exists == 0 {
+		return ErrNotFound
 	}
 
-	// Create a copy of the meeting with zero participants
-	meeting.Participants = []models.Participant{}
+	// Clear all participants from the meeting's participant set
+	key := r.participantSetKey(meetingID)
+	err = r.client.Del(ctx, key).Err()
+	if err != nil {
+		return fmt.Errorf("failed to clear participants: %w", err)
+	}
 
-	// Overwrite the original meeting with the new one
-	return r.SaveMeeting(ctx, meeting)
+	return nil
 }

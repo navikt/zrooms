@@ -207,15 +207,17 @@ func (r *Repository) CountParticipantsInMeeting(ctx context.Context, meetingID s
 }
 
 func (r *Repository) ClearPartipantsInMeeting(ctx context.Context, meetingID string) error {
-	// Attempt to fetch the meeting
-	meeting, err := r.GetMeeting(ctx, meetingID)
-	if err != nil {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Check if meeting exists
+	state, ok := r.meetingStates[meetingID]
+	if !ok {
 		return ErrNotFound
 	}
 
-	// Create a copy of the meeting with zero participants
-	meeting.Participants = []models.Participant{}
+	// Clear all participant IDs from the meeting
+	state.ParticipantIDs = make(map[string]struct{})
 
-	// Overwrite the original meeting with the new one
-	return r.SaveMeeting(ctx, meeting)
+	return nil
 }

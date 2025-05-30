@@ -100,19 +100,6 @@ func (s *MeetingService) GetMeetingStatusData(ctx context.Context, includeEnded 
 	return result, nil
 }
 
-// UpdateParticipantCount updates a meeting's participant count and notifies listeners
-func (s *MeetingService) UpdateParticipantCount(meetingID string) error {
-	meeting, err := s.repo.GetMeeting(context.Background(), meetingID)
-	if err != nil {
-		return err
-	}
-
-	// No need to update the meeting object here, just notify that it changed
-	// The participant count is calculated dynamically in GetMeetingStatusData
-	s.notifyUpdate(meeting)
-	return nil
-}
-
 // NotifyMeetingStarted handles notifications when a meeting starts
 func (s *MeetingService) NotifyMeetingStarted(meeting *models.Meeting) {
 	// Ensure the meeting has status Started
