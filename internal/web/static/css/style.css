@@ -63,13 +63,13 @@ header {
 .auth-section {
     display: flex;
     align-items: center;
+    gap: 0.75rem;
 }
 
-.install-btn {
+.install-btn, .manage-btn {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    background-color: rgba(255, 255, 255, 0.15);
     color: var(--header-text);
     text-decoration: none;
     padding: 0.5rem 1rem;
@@ -80,13 +80,28 @@ header {
     transition: all 0.2s ease;
 }
 
+.install-btn {
+    background-color: rgba(255, 255, 255, 0.15);
+}
+
 .install-btn:hover {
     background-color: rgba(255, 255, 255, 0.25);
     border-color: rgba(255, 255, 255, 0.5);
     transform: translateY(-1px);
 }
 
-.install-btn svg {
+.manage-btn {
+    background-color: transparent;
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.manage-btn:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.6);
+    transform: translateY(-1px);
+}
+
+.install-btn svg, .manage-btn svg {
     width: 16px;
     height: 16px;
 }
@@ -100,6 +115,18 @@ header {
     
     .title-section h1 {
         font-size: 1.5rem;
+    }
+    
+    .auth-section {
+        flex-direction: column;
+        width: 100%;
+        gap: 0.5rem;
+    }
+    
+    .install-btn, .manage-btn {
+        width: 100%;
+        justify-content: center;
+        max-width: 250px;
     }
 }
 
