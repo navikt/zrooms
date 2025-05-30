@@ -95,9 +95,6 @@ func (s *MeetingService) GetMeetingStatusData(ctx context.Context, includeEnded 
 			ParticipantCount: participantCount,
 			StartedAt:        meeting.StartTime,
 		})
-
-		// Notify update callbacks
-		s.notifyUpdate(meeting)
 	}
 
 	return result, nil

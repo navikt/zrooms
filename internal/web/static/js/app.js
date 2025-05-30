@@ -1,7 +1,7 @@
 // Simplified app.js for Zrooms with HTMX support
 document.addEventListener('DOMContentLoaded', function() {
-    // We don't need much JavaScript since HTMX handles most of the dynamic behavior
-    console.log('Zrooms application loaded with HTMX support');
+    console.log('=== ZROOMS APP LOADED ===');
+    console.log('HTMX version:', htmx.version);
     
     // Apply alternating row colors
     applyRowStyles();
@@ -21,12 +21,12 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Add status indicator for SSE connection (always enabled)
     document.body.addEventListener('htmx:sseOpen', function(event) {
-        console.log('SSE connection opened', event.detail);
+        console.log('=== SSE CONNECTION OPENED ===', event.detail);
         addConnectionIndicator('connected');
     });
     
     document.body.addEventListener('htmx:sseError', function(event) {
-        console.log('SSE connection error', event.detail);
+        console.log('=== SSE CONNECTION ERROR ===', event.detail);
         addConnectionIndicator('error');
     });
 });

@@ -68,11 +68,7 @@ func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	flusher.Flush()
 
 	// Send initial connected event
-	fmt.Fprint(w, "event: connected\ndata: {\"connected\":true}\n\n")
-	flusher.Flush()
-
-	// Send initial load event
-	fmt.Fprint(w, "event: initial-load\ndata: Load initial data\n\n")
+	fmt.Fprint(w, "event: connected\ndata: connected\n\n")
 	flusher.Flush()
 
 	// Set up heartbeat (every 10 seconds)
@@ -113,7 +109,7 @@ func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
 	log.Printf("Publishing SSE update event for meeting %s", meeting.ID)
 
 	// Create the SSE message
-	message := "event: update\ndata: trigger\n\n"
+	message := "event: update\ndata: update\n\n"
 
 	// Send to broadcast channel (non-blocking due to buffer)
 	select {

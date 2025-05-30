@@ -6,8 +6,7 @@
          hx-get="/partial/meetings"
          hx-target="#meeting-list-container"
          hx-swap="innerHTML"
-         hx-trigger="sse:update, sse:initial-load, load"
-         hx-ext="sse" sse-connect="/events" sse-with-credentials="true">
+         hx-trigger="sse:update, load">
         {{template "meeting_list" .}}
     </div>
 </section>
