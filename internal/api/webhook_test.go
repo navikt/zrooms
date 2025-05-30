@@ -26,30 +26,9 @@ type MockMeetingService struct {
 	mock.Mock
 }
 
-func (m *MockMeetingService) GetAllMeetings() ([]*models.Meeting, error) {
-	args := m.Called()
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).([]*models.Meeting), args.Error(1)
-}
-
-func (m *MockMeetingService) GetMeeting(id string) (*models.Meeting, error) {
-	args := m.Called(id)
-	if args.Get(0) == nil {
-		return nil, args.Error(1)
-	}
-	return args.Get(0).(*models.Meeting), args.Error(1)
-}
-
-func (m *MockMeetingService) UpdateMeeting(meeting *models.Meeting) error {
-	args := m.Called(meeting)
-	return args.Error(0)
-}
-
-func (m *MockMeetingService) DeleteMeeting(id string) error {
-	args := m.Called(id)
-	return args.Error(0)
+func (m *MockMeetingService) GetMeetingStatusData(ctx context.Context, includeEnded bool) ([]service.MeetingStatusData, error) {
+	args := m.Called(ctx, includeEnded)
+	return args.Get(0).([]service.MeetingStatusData), args.Error(1)
 }
 
 func (m *MockMeetingService) NotifyMeetingStarted(meeting *models.Meeting) {

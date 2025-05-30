@@ -129,14 +129,16 @@ func TestMeetingService_UpdateCallbacks(t *testing.T) {
 	// Create repository and service
 	repo := memory.NewRepository()
 	meetingService := service.NewMeetingService(repo)
+	ctx := context.Background()
 
-	// Create a test meeting
+	// Create a test meeting and add it to repository directly
 	meeting := &models.Meeting{
 		ID:        "test-meeting",
 		Topic:     "Test Meeting",
 		Status:    models.MeetingStatusCreated,
 		StartTime: time.Now(),
 	}
+	require.NoError(t, repo.SaveMeeting(ctx, meeting))
 
 	// Create mock callback
 	mockCallback := new(MockUpdateCallback)
@@ -149,120 +151,21 @@ func TestMeetingService_UpdateCallbacks(t *testing.T) {
 	// Setup expectations - callback should be called for each operation
 	mockCallback.On("OnUpdate", mock.Anything).Return()
 
-	// Test operations that should trigger callbacks
+	// Test webhook notification operations that should trigger callbacks
 
-	// 1. Create meeting
-	err := meetingService.CreateMeeting(meeting)
-	require.NoError(t, err)
-
-	// 2. Update meeting
-	meeting.Status = models.MeetingStatusStarted
-	err = meetingService.UpdateMeeting(meeting)
-	require.NoError(t, err)
-
-	// 3. Notify about a participant joining
+	// 1. Notify about a participant joining
 	meetingService.NotifyParticipantJoined(meeting.ID, "user1")
 
-	// 4. Notify about a participant leaving
+	// 2. Notify about a participant leaving
 	meetingService.NotifyParticipantLeft(meeting.ID, "user1")
 
-	// 5. Notify about meeting starting
+	// 3. Notify about meeting starting
 	meetingService.NotifyMeetingStarted(meeting)
 
-	// 6. Notify about meeting ending
+	// 4. Notify about meeting ending
 	meeting.Status = models.MeetingStatusEnded
 	meetingService.NotifyMeetingEnded(meeting)
 
-	// Verify callback was called the expected number of times (6 operations)
-	mockCallback.AssertNumberOfCalls(t, "OnUpdate", 6)
-}
-
-// TestMeetingService_GetAllMeetings tests the GetAllMeetings method
-func TestMeetingService_GetAllMeetings(t *testing.T) {
-	// Create repository and service
-	repo := memory.NewRepository()
-	meetingService := service.NewMeetingService(repo)
-	ctx := context.Background()
-
-	// Add test meetings
-	meeting1 := &models.Meeting{ID: "meeting1", Topic: "Meeting 1"}
-	meeting2 := &models.Meeting{ID: "meeting2", Topic: "Meeting 2"}
-	require.NoError(t, repo.SaveMeeting(ctx, meeting1))
-	require.NoError(t, repo.SaveMeeting(ctx, meeting2))
-
-	// Get all meetings
-	meetings, err := meetingService.GetAllMeetings()
-	require.NoError(t, err)
-
-	// Verify results
-	assert.Len(t, meetings, 2)
-
-	// Verify meeting contents (order may vary)
-	meetingMap := make(map[string]*models.Meeting)
-	for _, m := range meetings {
-		meetingMap[m.ID] = m
-	}
-
-	assert.Contains(t, meetingMap, "meeting1")
-	assert.Contains(t, meetingMap, "meeting2")
-	assert.Equal(t, "Meeting 1", meetingMap["meeting1"].Topic)
-	assert.Equal(t, "Meeting 2", meetingMap["meeting2"].Topic)
-}
-
-// TestMeetingService_GetMeeting tests the GetMeeting method
-func TestMeetingService_GetMeeting(t *testing.T) {
-	// Create repository and service
-	repo := memory.NewRepository()
-	meetingService := service.NewMeetingService(repo)
-	ctx := context.Background()
-
-	// Add a test meeting
-	meeting := &models.Meeting{ID: "test-meeting", Topic: "Test Meeting"}
-	require.NoError(t, repo.SaveMeeting(ctx, meeting))
-
-	// Get the meeting
-	result, err := meetingService.GetMeeting("test-meeting")
-	require.NoError(t, err)
-
-	// Verify result
-	assert.Equal(t, meeting.ID, result.ID)
-	assert.Equal(t, meeting.Topic, result.Topic)
-
-	// Test get non-existent meeting
-	_, err = meetingService.GetMeeting("non-existent")
-	assert.Error(t, err, "Should return error for non-existent meeting")
-}
-
-// TestMeetingService_DeleteMeeting tests the DeleteMeeting method
-func TestMeetingService_DeleteMeeting(t *testing.T) {
-	// Create repository and service
-	repo := memory.NewRepository()
-	meetingService := service.NewMeetingService(repo)
-	ctx := context.Background()
-
-	// Create mock callback
-	mockCallback := new(MockUpdateCallback)
-
-	// Register callback
-	meetingService.RegisterUpdateCallback(func(m *models.Meeting) {
-		mockCallback.OnUpdate(m)
-	})
-
-	// Setup expectations
-	mockCallback.On("OnUpdate", mock.Anything).Return()
-
-	// Add a test meeting
-	meeting := &models.Meeting{ID: "test-meeting", Topic: "Test Meeting"}
-	require.NoError(t, repo.SaveMeeting(ctx, meeting))
-
-	// Delete the meeting
-	err := meetingService.DeleteMeeting("test-meeting")
-	require.NoError(t, err)
-
-	// Verify callback was called
-	mockCallback.AssertCalled(t, "OnUpdate", mock.Anything)
-
-	// Verify meeting was deleted
-	_, err = meetingService.GetMeeting("test-meeting")
-	assert.Error(t, err, "Meeting should be deleted")
+	// Verify callback was called the expected number of times (4 operations)
+	mockCallback.AssertNumberOfCalls(t, "OnUpdate", 4)
 }

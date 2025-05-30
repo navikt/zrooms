@@ -6,9 +6,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Apply alternating row colors
     applyRowStyles();
     
-    // Set up meeting count in page title
-    updateMeetingCountInTitle();
-    
     // Update the "last updated" timestamp when HTMX completes a swap
     document.body.addEventListener('htmx:afterSwap', function(event) {
         const now = new Date();
@@ -20,7 +17,6 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Re-apply styles after content updates
         applyRowStyles();
-        updateMeetingCountInTitle();
     });
     
     // Add status indicator for SSE connection (always enabled)
@@ -32,11 +28,6 @@ document.addEventListener('DOMContentLoaded', function() {
     document.body.addEventListener('htmx:sseError', function(event) {
         console.log('SSE connection error', event.detail);
         addConnectionIndicator('error');
-    });
-
-    // Log when the SSE connection is being initialized
-    document.body.addEventListener('htmx:sseInit', function(event) {
-        console.log('SSE connection initializing with credentials', event.detail);
     });
 });
 
@@ -77,56 +68,4 @@ function applyRowStyles() {
             row.style.backgroundColor = '';
         }
     });
-}
-
-// Updates the meeting count in the browser title
-function updateMeetingCountInTitle() {
-    const meetingRows = document.querySelectorAll('tbody tr');
-    const noMeetingsRow = document.querySelector('.no-meetings');
-    
-    // If there's a "No meetings" row, don't count it
-    const count = noMeetingsRow ? 0 : meetingRows.length;
-    
-    if (count > 0) {
-        document.title = `(${count}) ZRooms - Meeting Status`;
-    } else {
-        document.title = `ZRooms - Meeting Status`;
-    }
-}
-
-// Sets up a countdown timer for the auto-refresh
-function setupRefreshCounter() {
-    // Get the refresh interval from the meta tag
-    const refreshMeta = document.querySelector('meta[http-equiv="refresh"]');
-    if (!refreshMeta) return;
-    
-    const content = refreshMeta.getAttribute('content');
-    let seconds = parseInt(content, 10);
-    if (isNaN(seconds)) return;
-    
-    // Create or get the refresh counter element
-    let counterElem = document.getElementById('refresh-counter');
-    if (!counterElem) {
-        counterElem = document.createElement('div');
-        counterElem.id = 'refresh-counter';
-        counterElem.style.position = 'fixed';
-        counterElem.style.bottom = '10px';
-        counterElem.style.right = '10px';
-        counterElem.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
-        counterElem.style.color = 'white';
-        counterElem.style.padding = '5px 10px';
-        counterElem.style.borderRadius = '3px';
-        counterElem.style.fontSize = '12px';
-        document.body.appendChild(counterElem);
-    }
-    
-    // Update the counter every second
-    const interval = setInterval(() => {
-        seconds--;
-        counterElem.textContent = `Refreshing in ${seconds}s`;
-        
-        if (seconds <= 0) {
-            clearInterval(interval);
-        }
-    }, 1000);
 }

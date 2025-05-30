@@ -9,7 +9,7 @@ Zrooms is a Go application that tracks and displays the status of Zoom meetings.
 - **Participant Tracking**: Shows how many participants are in each meeting
 - **Auto-refreshing Dashboard**: Automatically updates to show the latest meeting status (fallback for browsers without SSE support)
 - **Zoom Webhook Integration**: Processes Zoom meeting events (creation, start, end, participant changes)
-- **API Endpoints**: RESTful API for meeting management
+- **Health Check Endpoints**: API endpoints for monitoring application health
 - **Graceful Degradation**: Works well across different browsers with appropriate fallbacks
 
 ## Architecture

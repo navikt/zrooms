@@ -23,7 +23,7 @@ func SanitizeLogString(input string) string {
 
 	// Pre-process CRLF to avoid double spaces
 	input = strings.ReplaceAll(input, "\r\n", "\n")
-	
+
 	// Replace control characters with spaces
 	sanitized := strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {

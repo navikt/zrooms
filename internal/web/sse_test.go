@@ -18,29 +18,25 @@ type MockMeetingService struct {
 	mock.Mock
 }
 
-func (m *MockMeetingService) GetAllMeetings() ([]*models.Meeting, error) {
-	args := m.Called()
-	return args.Get(0).([]*models.Meeting), args.Error(1)
-}
-
-func (m *MockMeetingService) GetMeeting(id string) (*models.Meeting, error) {
-	args := m.Called(id)
-	return args.Get(0).(*models.Meeting), args.Error(1)
-}
-
-func (m *MockMeetingService) UpdateMeeting(meeting *models.Meeting) error {
-	args := m.Called(meeting)
-	return args.Error(0)
-}
-
-func (m *MockMeetingService) DeleteMeeting(id string) error {
-	args := m.Called(id)
-	return args.Error(0)
-}
-
 func (m *MockMeetingService) GetMeetingStatusData(ctx context.Context, includeEnded bool) ([]service.MeetingStatusData, error) {
 	args := m.Called(ctx, includeEnded)
 	return args.Get(0).([]service.MeetingStatusData), args.Error(1)
+}
+
+func (m *MockMeetingService) NotifyMeetingStarted(meeting *models.Meeting) {
+	m.Called(meeting)
+}
+
+func (m *MockMeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
+	m.Called(meeting)
+}
+
+func (m *MockMeetingService) NotifyParticipantJoined(meetingID string, participantID string) {
+	m.Called(meetingID, participantID)
+}
+
+func (m *MockMeetingService) NotifyParticipantLeft(meetingID string, participantID string) {
+	m.Called(meetingID, participantID)
 }
 
 // CreateTestMeeting creates a sample meeting for testing
@@ -72,7 +68,7 @@ func TestNewSSEManager(t *testing.T) {
 	// Verify the manager was created with the expected fields
 	assert.NotNil(t, sseManager)
 	assert.Equal(t, mockService, sseManager.meetingService)
-	assert.NotNil(t, sseManager.clients)
+	assert.NotNil(t, sseManager.broadcast)
 }
 
 func TestSSEServeHTTP_CORSPreflight(t *testing.T) {
@@ -108,11 +104,15 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 
 	// Create test meeting data
 	meeting := CreateTestMeeting()
-	meetings := []*models.Meeting{meeting}
+	testStatusData := []service.MeetingStatusData{
+		{
+			Meeting:          meeting, // meeting is a pointer, Meeting field expects a pointer
+			ParticipantCount: 0,
+		},
+	}
 
-	// Set up expectation for GetAllMeetings - Note this is now optional with HTMX approach
-	// but keeping it for backward compatibility with tests
-	mockService.On("GetAllMeetings").Return(meetings, nil).Maybe()
+	// Set up expectation for GetMeetingStatusData
+	mockService.On("GetMeetingStatusData", mock.Anything, mock.AnythingOfType("bool")).Return(testStatusData, nil).Maybe()
 
 	// Create an SSE manager
 	sseManager := NewSSEManager(mockService)
@@ -162,8 +162,8 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	assert.Contains(t, responseBody, "event: connected")
 	assert.Contains(t, responseBody, "event: initial-load")
 
-	// The data should include client ID for the connected event
-	assert.Contains(t, responseBody, `data: {"id":`)
+	// The data should include connected status for the connected event
+	assert.Contains(t, responseBody, `data: {"connected":true}`)
 
 	// With HTMX implementation, the initial-load event should contain the expected data
 	assert.Contains(t, responseBody, `Load initial data`)
@@ -189,48 +189,59 @@ func TestNotifyMeetingUpdate(t *testing.T) {
 	// Create an SSE manager
 	sseManager := NewSSEManager(mockService)
 
-	// Create a test client - this tests the manager's internal state only
-	// as we can't verify the output without a real connection
-	clientID := "test-client"
-	responseRecorder := httptest.NewRecorder()
-	testClient := &SSEClient{
-		id:             clientID,
-		responseWriter: responseRecorder,
-		disconnected:   make(chan struct{}),
-		lastActive:     time.Now(),
-	}
-
-	// Add the test client to the manager
-	sseManager.clientsMutex.Lock()
-	sseManager.clients[clientID] = testClient
-	sseManager.clientsMutex.Unlock()
-
 	// Call NotifyMeetingUpdate
 	sseManager.NotifyMeetingUpdate(meeting)
 
-	// Check that the client received the update event with simple trigger data
-	responseBody := responseRecorder.Body.String()
-	assert.Contains(t, responseBody, "event: update")
-	assert.Contains(t, responseBody, "data: trigger")
+	// Check that a message was sent to the broadcast channel
+	select {
+	case message := <-sseManager.broadcast:
+		assert.Contains(t, message, "event: update")
+		assert.Contains(t, message, "data: trigger")
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Expected message on broadcast channel")
+	}
 }
 
-func TestIsEventStreamSupported(t *testing.T) {
-	// Test with empty Accept header
-	emptyRequest := httptest.NewRequest(http.MethodGet, "/events", nil)
-	assert.True(t, isEventStreamSupported(emptyRequest), "Empty Accept header should be supported")
+func TestSSEManager_Shutdown(t *testing.T) {
+	// Create a mock meeting service
+	mockService := new(MockMeetingService)
 
-	// Test with wildcard Accept header
-	wildcardRequest := httptest.NewRequest(http.MethodGet, "/events", nil)
-	wildcardRequest.Header.Set("Accept", "*/*")
-	assert.True(t, isEventStreamSupported(wildcardRequest), "Wildcard Accept header should be supported")
+	// Create an SSE manager
+	sseManager := NewSSEManager(mockService)
 
-	// Test with explicit event-stream Accept header
-	eventStreamRequest := httptest.NewRequest(http.MethodGet, "/events", nil)
-	eventStreamRequest.Header.Set("Accept", "text/event-stream")
-	assert.True(t, isEventStreamSupported(eventStreamRequest), "text/event-stream Accept header should be supported")
+	// Create a test recorder
+	recorder := httptest.NewRecorder()
 
-	// Test with incompatible Accept header
-	incompatibleRequest := httptest.NewRequest(http.MethodGet, "/events", nil)
-	incompatibleRequest.Header.Set("Accept", "application/json")
-	assert.False(t, isEventStreamSupported(incompatibleRequest), "application/json Accept header should not be supported")
+	// Create a request
+	request := httptest.NewRequest(http.MethodGet, "/events", nil)
+	request.Header.Set("Accept", "text/event-stream")
+
+	// Start serving SSE in a goroutine
+	done := make(chan bool)
+	go func() {
+		sseManager.ServeHTTP(recorder, request)
+		done <- true
+	}()
+
+	// Give the SSE connection a moment to start
+	time.Sleep(50 * time.Millisecond)
+
+	// Shutdown the SSE manager
+	sseManager.Shutdown()
+
+	// Wait for ServeHTTP to complete (should exit due to shutdown)
+	select {
+	case <-done:
+		// Good! ServeHTTP exited
+	case <-time.After(2 * time.Second):
+		t.Fatal("ServeHTTP did not exit after shutdown within timeout")
+	}
+
+	// Verify that the shutdown channel is closed
+	select {
+	case <-sseManager.shutdown:
+		// Good! Channel is closed
+	default:
+		t.Fatal("Shutdown channel should be closed")
+	}
 }

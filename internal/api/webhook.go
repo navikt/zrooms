@@ -17,17 +17,18 @@ import (
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
 	"github.com/navikt/zrooms/internal/utils"
+	"github.com/navikt/zrooms/internal/web"
 )
 
 // WebhookHandler processes webhook events from Zoom
 type WebhookHandler struct {
 	repo           repository.Repository
-	meetingService MeetingServicer
+	meetingService web.MeetingServicer
 	secretToken    string
 }
 
 // NewWebhookHandler creates a new webhook handler with the given repository and meeting service
-func NewWebhookHandler(repo repository.Repository, meetingService MeetingServicer) *WebhookHandler {
+func NewWebhookHandler(repo repository.Repository, meetingService web.MeetingServicer) *WebhookHandler {
 	zoomConfig := config.GetZoomConfig()
 	return &WebhookHandler{
 		repo:           repo,
@@ -38,7 +39,7 @@ func NewWebhookHandler(repo repository.Repository, meetingService MeetingService
 
 // NewWebhookHandlerWithSecret creates a webhook handler with the given repository and secret token
 // This method is primarily used for testing webhook signature validation
-func NewWebhookHandlerWithSecret(repo repository.Repository, meetingService MeetingServicer, secretToken string) *WebhookHandler {
+func NewWebhookHandlerWithSecret(repo repository.Repository, meetingService web.MeetingServicer, secretToken string) *WebhookHandler {
 	return &WebhookHandler{
 		repo:           repo,
 		meetingService: meetingService,

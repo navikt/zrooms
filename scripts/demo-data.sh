@@ -1,8 +1,18 @@
 #!/bin/bash
 
-# Demo script for Zrooms
-# This script sends test data to a running Zrooms application to simulate
-# Zoom webhook events for demonstration purposes.
+# Demo script for Zrooms - Webhook-Only Architecture
+# This script sends webhook events to simulate realistic Zoom meeting activity
+# Supports both one-time demo and continuous simulation modes
+#
+# SIMPLIFIED VERSION: 
+# - No complex state tracking (the Go application handles that)
+# - Uses predefined meeting IDs for simplicity
+# - Focuses on generating realistic webhook events
+# - Compatible with macOS bash (no associative arrays)
+#
+# Usage:
+#   ./demo-data.sh          # One-time demo setup
+#   ./demo-data.sh -c       # Continuous simulation
 
 # Configuration
 HOST="http://localhost:8080"
@@ -14,11 +24,37 @@ GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
+# Global variables for generating unique IDs
+MEETING_COUNTER=1
+PARTICIPANT_COUNTER=1
+
+# Meeting topics pool
+TOPICS=(
+    "Weekly Team Standup"
+    "Product Planning Session"
+    "Customer Demo"
+    "Sprint Review"
+    "Architecture Discussion"
+    "Marketing Strategy"
+    "Sales Pipeline Review"
+    "Engineering Sync"
+    "Design Review"
+    "Q&A Session"
+    "Board Meeting"
+    "Training Session"
+    "Project Kickoff"
+    "Retrospective"
+    "Client Consultation"
+)
+
 # Display intro message
-echo -e "${BLUE}Zrooms Demo Data Generator${NC}"
-echo -e "This script will populate your Zrooms application with test data."
+echo -e "${BLUE}╔══════════════════════════════════════╗${NC}"
+echo -e "${BLUE}║        Zrooms Demo Generator         ║${NC}"
+echo -e "${BLUE}║     Webhook-Only Architecture        ║${NC}"
+echo -e "${BLUE}╚══════════════════════════════════════╝${NC}"
 echo -e "Make sure your application is running at ${HOST}\n"
 
 # Utility function to send webhook events
@@ -26,339 +62,328 @@ send_event() {
     local event_type=$1
     local payload=$2
     
-    echo -e "${YELLOW}Sending ${event_type} event...${NC}"
+    echo -e "${YELLOW}📡 Sending ${event_type} event...${NC}"
     
-    curl -s -X POST -H "${HEADER}" -d "${payload}" "${HOST}${WEBHOOK_ENDPOINT}" > /dev/null
+    response=$(curl -s -w "%{http_code}" -X POST -H "${HEADER}" -d "${payload}" "${HOST}${WEBHOOK_ENDPOINT}")
+    http_code="${response: -3}"
     
-    if [ $? -eq 0 ]; then
+    if [ "$http_code" -eq 200 ]; then
         echo -e "${GREEN}✓ Event sent successfully${NC}"
     else
-        echo -e "${RED}✗ Failed to send event${NC}"
+        echo -e "${RED}✗ Failed to send event (HTTP: $http_code)${NC}"
     fi
     
-    # Give the application time to process the event
-    sleep 1
+    # Brief delay between events
+    sleep 0.5
 }
 
-# Function to create a room
-create_room() {
-    local room_id=$1
-    local room_name=$2
-    local capacity=$3
-    local location=$4
+# Function to get a random topic
+get_random_topic() {
+    echo "${TOPICS[$((RANDOM % ${#TOPICS[@]}))]}"
+}
+
+# Function to generate a random participant name
+get_random_participant() {
+    local names=("Alice" "Bob" "Charlie" "Diana" "Eve" "Frank" "Grace" "Henry" "Iris" "Jack" "Kate" "Liam" "Maya" "Noah" "Olivia" "Peter" "Quinn" "Ruby" "Sam" "Tina")
+    local surname=("Smith" "Johnson" "Williams" "Brown" "Jones" "Garcia" "Miller" "Davis" "Rodriguez" "Martinez")
     
-    echo -e "\n${BLUE}Creating Room: ${room_name}${NC}"
+    local first_name="${names[$((RANDOM % ${#names[@]}))]}"
+    local last_name="${surname[$((RANDOM % ${#surname[@]}))]}"
+    echo "${first_name} ${last_name}"
+}
+
+# Function to create and start a meeting
+create_and_start_meeting() {
+    local meeting_id="meeting-${MEETING_COUNTER}"
+    local topic=$(get_random_topic)
+    local host_id="host-${MEETING_COUNTER}"
     
-    # Direct API call to create a room
-    curl -s -X POST -H "${HEADER}" -d '{
-        "id": "'"${room_id}"'",
-        "name": "'"${room_name}"'",
-        "capacity": '"${capacity}"',
-        "location": "'"${location}"'"
-    }' "${HOST}/api/rooms" > /dev/null
+    echo -e "\n${CYAN}🚀 Creating and starting meeting: ${topic}${NC}"
     
-    if [ $? -eq 0 ]; then
-        echo -e "${GREEN}✓ Room created successfully${NC}"
+    # Create meeting
+    send_event "meeting.created" '{
+        "event": "meeting.created",
+        "payload": {
+            "account_id": "demo-account",
+            "object": {
+                "uuid": "uuid-'"${MEETING_COUNTER}"'",
+                "id": "'"${meeting_id}"'",
+                "host_id": "'"${host_id}"'",
+                "topic": "'"${topic}"'",
+                "type": 2,
+                "start_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'",
+                "duration": '$((30 + RANDOM % 90))',
+                "timezone": "UTC"
+            }
+        },
+        "event_ts": '"$(date +%s)"'000
+    }'
+    
+    sleep 1
+    
+    # Start meeting
+    send_event "meeting.started" '{
+        "event": "meeting.started",
+        "payload": {
+            "account_id": "demo-account",
+            "object": {
+                "uuid": "uuid-'"${MEETING_COUNTER}"'",
+                "id": "'"${meeting_id}"'",
+                "host_id": "'"${host_id}"'",
+                "topic": "'"${topic}"'",
+                "type": 2,
+                "duration": '$((30 + RANDOM % 90))',
+                "timezone": "UTC"
+            }
+        },
+        "event_ts": '"$(date +%s)"'000
+    }'
+    
+    MEETING_COUNTER=$((MEETING_COUNTER + 1))
+    return 0
+}
+
+# Function to add participants to a meeting
+add_participants_to_meeting() {
+    local meeting_id=$1
+    local num_participants=$2
+    
+    echo -e "${BLUE}👥 Adding ${num_participants} participants to meeting ${meeting_id}${NC}"
+    
+    for ((i=1; i<=num_participants; i++)); do
+        local participant_name=$(get_random_participant)
+        local participant_id="participant-${PARTICIPANT_COUNTER}"
+        local user_id="user-${PARTICIPANT_COUNTER}"
+        local email="${participant_name// /.}"
+        email=$(echo "$email" | tr '[:upper:]' '[:lower:]')@example.com
+        
+        send_event "meeting.participant_joined" '{
+            "event": "meeting.participant_joined",
+            "payload": {
+                "account_id": "demo-account",
+                "object": {
+                    "uuid": "uuid-'"${meeting_id#meeting-}"'",
+                    "id": "'"${meeting_id}"'",
+                    "host_id": "host-'"${meeting_id#meeting-}"'",
+                    "participant": {
+                        "id": "'"${participant_id}"'",
+                        "user_id": "'"${user_id}"'",
+                        "user_name": "'"${participant_name}"'",
+                        "email": "'"${email}"'",
+                        "join_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
+                    }
+                }
+            },
+            "event_ts": '"$(date +%s)"'000
+        }'
+        
+        PARTICIPANT_COUNTER=$((PARTICIPANT_COUNTER + 1))
+        
+        # Random delay between participants
+        sleep $((1 + RANDOM % 3))
+    done
+}
+
+# Function to remove random participants from a meeting
+remove_participants_from_meeting() {
+    local meeting_id=$1
+    local num_to_remove=$2
+    
+    echo -e "${YELLOW}👋 ${num_to_remove} participants leaving meeting ${meeting_id}${NC}"
+    
+    for ((i=1; i<=num_to_remove; i++)); do
+        local participant_name=$(get_random_participant)
+        local participant_id="participant-$((PARTICIPANT_COUNTER - RANDOM % 50))"
+        local user_id="user-$((PARTICIPANT_COUNTER - RANDOM % 50))"
+        local email="${participant_name// /.}"
+        email=$(echo "$email" | tr '[:upper:]' '[:lower:]')@example.com
+        
+        send_event "meeting.participant_left" '{
+            "event": "meeting.participant_left",
+            "payload": {
+                "account_id": "demo-account",
+                "object": {
+                    "uuid": "uuid-'"${meeting_id#meeting-}"'",
+                    "id": "'"${meeting_id}"'",
+                    "host_id": "host-'"${meeting_id#meeting-}"'",
+                    "participant": {
+                        "id": "'"${participant_id}"'",
+                        "user_id": "'"${user_id}"'",
+                        "user_name": "'"${participant_name}"'",
+                        "email": "'"${email}"'",
+                        "leave_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
+                    }
+                }
+            },
+            "event_ts": '"$(date +%s)"'000
+        }'
+        
+        # Random delay between participants leaving
+        sleep $((1 + RANDOM % 2))
+    done
+}
+
+# Function to end a meeting
+end_meeting() {
+    local meeting_id=$1
+    
+    echo -e "${RED}🔚 Ending meeting: ${meeting_id}${NC}"
+    
+    send_event "meeting.ended" '{
+        "event": "meeting.ended",
+        "payload": {
+            "account_id": "demo-account",
+            "object": {
+                "uuid": "uuid-'"${meeting_id#meeting-}"'",
+                "id": "'"${meeting_id}"'",
+                "host_id": "host-'"${meeting_id#meeting-}"'",
+                "topic": "Demo Meeting",
+                "type": 2
+            }
+        },
+        "event_ts": '"$(date +%s)"'000
+    }'
+}
+
+# Function to run initial demo (one-time setup)
+run_initial_demo() {
+    echo -e "\n${BLUE}🎬 Running Initial Demo Setup${NC}"
+    
+    # Create and start 3 initial meetings
+    create_and_start_meeting
+    sleep 2
+    add_participants_to_meeting "meeting-1" $((3 + RANDOM % 5))
+    
+    create_and_start_meeting  
+    sleep 2
+    add_participants_to_meeting "meeting-2" $((2 + RANDOM % 4))
+    
+    create_and_start_meeting
+    sleep 2
+    add_participants_to_meeting "meeting-3" $((4 + RANDOM % 6))
+    
+    echo -e "\n${GREEN}✅ Initial demo setup complete!${NC}"
+    echo -e "${CYAN}Check the web interface at ${HOST} to see the meetings${NC}"
+}
+
+# Function to simulate ongoing activity
+simulate_activity() {
+    echo -e "\n${BLUE}🔄 Starting continuous simulation...${NC}"
+    echo -e "${YELLOW}Press Ctrl+C to stop${NC}\n"
+    
+    local iteration=1
+    local active_meetings=("meeting-1" "meeting-2" "meeting-3")
+    
+    while true; do
+        echo -e "${CYAN}--- Simulation Iteration ${iteration} ---${NC}"
+        
+        # Random action
+        local action=$((RANDOM % 10))
+        local meeting_id="${active_meetings[$((RANDOM % ${#active_meetings[@]}))]}"
+        
+        case $action in
+            0|1|2) # 30% chance: Add participants
+                add_participants_to_meeting "$meeting_id" $((1 + RANDOM % 3))
+                ;;
+            3|4) # 20% chance: Remove participants  
+                remove_participants_from_meeting "$meeting_id" $((1 + RANDOM % 2))
+                ;;
+            5) # 10% chance: End and restart a meeting
+                end_meeting "$meeting_id"
+                sleep 2
+                create_and_start_meeting
+                sleep 2
+                add_participants_to_meeting "$meeting_id" $((1 + RANDOM % 4))
+                ;;
+            6|7) # 20% chance: Create additional meeting
+                local new_meeting_id="meeting-$((MEETING_COUNTER))"
+                create_and_start_meeting
+                sleep 2
+                add_participants_to_meeting "$new_meeting_id" $((1 + RANDOM % 4))
+                active_meetings+=("$new_meeting_id")
+                ;;
+            *) # 20% chance: Just status update
+                echo -e "${BLUE}📊 Status check - ${#active_meetings[@]} meetings being simulated${NC}"
+                ;;
+        esac
+        
+        # Wait between actions (5-15 seconds)
+        local wait_time=$((5 + RANDOM % 10))
+        echo -e "${YELLOW}⏳ Waiting ${wait_time} seconds...${NC}\n"
+        sleep $wait_time
+        
+        iteration=$((iteration + 1))
+    done
+}
+
+# Main execution logic
+main() {
+    # Parse command line arguments
+    MODE="demo"
+    
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --continuous|-c)
+                MODE="continuous"
+                shift
+                ;;
+            --help|-h)
+                echo "Usage: $0 [OPTIONS]"
+                echo ""
+                echo "Options:"
+                echo "  --continuous, -c    Run continuous simulation (default: one-time demo)"
+                echo "  --help, -h         Show this help message"
+                echo ""
+                echo "Examples:"
+                echo "  $0                 # Run one-time demo"
+                echo "  $0 --continuous    # Run continuous simulation"
+                exit 0
+                ;;
+            *)
+                echo "Unknown option: $1"
+                echo "Use --help for usage information"
+                exit 1
+                ;;
+        esac
+    done
+    
+    # Health check
+    echo -e "${BLUE}🔍 Checking application health...${NC}"
+    if ! curl -s "${HOST}/health/live" > /dev/null; then
+        echo -e "${RED}❌ Application not running at ${HOST}${NC}"
+        echo -e "Please start the Zrooms application first"
+        exit 1
+    fi
+    echo -e "${GREEN}✅ Application is running${NC}"
+    
+    # Run based on mode
+    if [ "$MODE" = "continuous" ]; then
+        run_initial_demo
+        sleep 3
+        simulate_activity
     else
-        echo -e "${RED}✗ Failed to create room${NC}"
+        run_initial_demo
+        echo -e "\n${GREEN}🎉 Demo completed!${NC}"
+        echo -e "${CYAN}💡 Use --continuous flag for ongoing simulation${NC}"
     fi
-    
-    sleep 1
 }
 
-# 1. Create rooms
-echo -e "\n${BLUE}Step 1: Creating Rooms${NC}"
-create_room "room-1" "Executive Boardroom" 20 "Floor 1"
-create_room "room-2" "Marketing Conference Room" 15 "Floor 2"
-create_room "room-3" "Engineering Conference Room" 12 "Floor 3"
-create_room "room-4" "Small Meeting Room" 5 "Floor 2"
+# Cleanup function for graceful shutdown
+cleanup() {
+    echo -e "\n\n${YELLOW}🛑 Shutting down simulation...${NC}"
+    
+    # End the main demo meetings
+    for meeting_id in "meeting-1" "meeting-2" "meeting-3"; do
+        end_meeting "$meeting_id"
+        sleep 1
+    done
+    
+    echo -e "${GREEN}✅ Cleanup complete${NC}"
+    exit 0
+}
 
-# 2. Create and start meetings
-echo -e "\n${BLUE}Step 2: Creating Meetings${NC}"
+# Set up signal handlers
+trap cleanup SIGINT SIGTERM
 
-# Meeting 1: Executive Boardroom
-echo -e "\n${BLUE}Creating Meeting: Board Meeting in Executive Boardroom${NC}"
-send_event "meeting.created" '{
-    "event": "meeting.created",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid1",
-            "id": "meeting-1",
-            "host_id": "host-1",
-            "topic": "Q2 Board Meeting",
-            "type": 2,
-            "start_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'",
-            "duration": 60,
-            "timezone": "UTC"
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# Associate meeting with room
-curl -s -X PUT -H "${HEADER}" -d '{
-    "meeting_id": "meeting-1",
-    "room_id": "room-1"
-}' "${HOST}/api/rooms/room-1/meetings/meeting-1" > /dev/null
-
-# Meeting 2: Marketing Conference Room
-echo -e "\n${BLUE}Creating Meeting: Marketing Strategy in Marketing Conference Room${NC}"
-send_event "meeting.created" '{
-    "event": "meeting.created",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid2",
-            "id": "meeting-2",
-            "host_id": "host-2",
-            "topic": "Q3 Marketing Strategy",
-            "type": 2,
-            "start_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'",
-            "duration": 45,
-            "timezone": "UTC"
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# Associate meeting with room
-curl -s -X PUT -H "${HEADER}" -d '{
-    "meeting_id": "meeting-2",
-    "room_id": "room-2"
-}' "${HOST}/api/rooms/room-2/meetings/meeting-2" > /dev/null
-
-# Meeting 3: Engineering Conference Room
-echo -e "\n${BLUE}Creating Meeting: Sprint Planning in Engineering Conference Room${NC}"
-send_event "meeting.created" '{
-    "event": "meeting.created",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid3",
-            "id": "meeting-3",
-            "host_id": "host-3",
-            "topic": "Sprint Planning",
-            "type": 2,
-            "start_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'",
-            "duration": 30,
-            "timezone": "UTC"
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# Associate meeting with room
-curl -s -X PUT -H "${HEADER}" -d '{
-    "meeting_id": "meeting-3",
-    "room_id": "room-3"
-}' "${HOST}/api/rooms/room-3/meetings/meeting-3" > /dev/null
-
-# 3. Start meetings
-echo -e "\n${BLUE}Step 3: Starting Meetings${NC}"
-
-# Start Meeting 1
-echo -e "\n${BLUE}Starting Meeting: Board Meeting${NC}"
-send_event "meeting.started" '{
-    "event": "meeting.started",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid1",
-            "id": "meeting-1",
-            "host_id": "host-1",
-            "topic": "Q2 Board Meeting",
-            "type": 2,
-            "duration": 60,
-            "timezone": "UTC"
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# Start Meeting 2
-echo -e "\n${BLUE}Starting Meeting: Marketing Strategy${NC}"
-send_event "meeting.started" '{
-    "event": "meeting.started",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid2",
-            "id": "meeting-2",
-            "host_id": "host-2",
-            "topic": "Q3 Marketing Strategy",
-            "type": 2,
-            "duration": 45,
-            "timezone": "UTC"
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# 4. Add participants to meetings
-echo -e "\n${BLUE}Step 4: Adding Participants to Meetings${NC}"
-
-# Add participants to Meeting 1
-for i in {1..6}; do
-    echo -e "\n${BLUE}Adding Participant ${i} to Board Meeting${NC}"
-    send_event "meeting.participant_joined" '{
-        "event": "meeting.participant_joined",
-        "payload": {
-            "account_id": "account123",
-            "object": {
-                "uuid": "uuid1",
-                "id": "meeting-1",
-                "host_id": "host-1",
-                "participant": {
-                    "id": "'"participant-${i}"'",
-                    "user_id": "'"user-${i}"'",
-                    "user_name": "Board Member '"${i}"'",
-                    "email": "board'"${i}"'@example.com",
-                    "join_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
-                }
-            }
-        },
-        "event_ts": '"$(date +%s)"'000
-    }'
-    # Slight delay to make it look realistic
-    sleep 0.5
-done
-
-# Add participants to Meeting 2
-for i in {1..4}; do
-    echo -e "\n${BLUE}Adding Participant ${i} to Marketing Strategy Meeting${NC}"
-    send_event "meeting.participant_joined" '{
-        "event": "meeting.participant_joined",
-        "payload": {
-            "account_id": "account123",
-            "object": {
-                "uuid": "uuid2",
-                "id": "meeting-2",
-                "host_id": "host-2",
-                "participant": {
-                    "id": "'"marketing-${i}"'",
-                    "user_id": "'"mkt-user-${i}"'",
-                    "user_name": "Marketing Team '"${i}"'",
-                    "email": "marketing'"${i}"'@example.com",
-                    "join_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
-                }
-            }
-        },
-        "event_ts": '"$(date +%s)"'000
-    }'
-    # Slight delay to make it look realistic
-    sleep 0.5
-done
-
-# 5. Start Meeting 3 (Sprint Planning) and add participants
-echo -e "\n${BLUE}Starting Meeting: Sprint Planning${NC}"
-send_event "meeting.started" '{
-    "event": "meeting.started",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid3",
-            "id": "meeting-3",
-            "host_id": "host-3",
-            "topic": "Sprint Planning",
-            "type": 2,
-            "duration": 30,
-            "timezone": "UTC"
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# Add participants to Meeting 3
-for i in {1..8}; do
-    echo -e "\n${BLUE}Adding Participant ${i} to Sprint Planning${NC}"
-    send_event "meeting.participant_joined" '{
-        "event": "meeting.participant_joined",
-        "payload": {
-            "account_id": "account123",
-            "object": {
-                "uuid": "uuid3",
-                "id": "meeting-3",
-                "host_id": "host-3",
-                "participant": {
-                    "id": "'"dev-${i}"'",
-                    "user_id": "'"dev-user-${i}"'",
-                    "user_name": "Developer '"${i}"'",
-                    "email": "dev'"${i}"'@example.com",
-                    "join_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
-                }
-            }
-        },
-        "event_ts": '"$(date +%s)"'000
-    }'
-    # Slight delay to make it look realistic
-    sleep 0.5
-done
-
-# 6. Remove some participants
-echo -e "\n${BLUE}Step 5: Some Participants Leaving Meetings${NC}"
-
-# Remove 2 participants from Meeting 1
-echo -e "\n${BLUE}Participant 2 leaving Board Meeting${NC}"
-send_event "meeting.participant_left" '{
-    "event": "meeting.participant_left",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid1",
-            "id": "meeting-1",
-            "host_id": "host-1",
-            "participant": {
-                "id": "participant-2",
-                "user_id": "user-2",
-                "user_name": "Board Member 2",
-                "email": "board2@example.com",
-                "leave_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
-            }
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# Remove 1 participant from Meeting 2
-echo -e "\n${BLUE}Participant 3 leaving Marketing Meeting${NC}"
-send_event "meeting.participant_left" '{
-    "event": "meeting.participant_left",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid2",
-            "id": "meeting-2",
-            "host_id": "host-2",
-            "participant": {
-                "id": "marketing-3",
-                "user_id": "mkt-user-3",
-                "user_name": "Marketing Team 3",
-                "email": "marketing3@example.com",
-                "leave_time": "'"$(date -u +"%Y-%m-%dT%H:%M:%SZ")"'"
-            }
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-# End Meeting 3 (Sprint Planning)
-echo -e "\n${BLUE}Step 6: Ending Sprint Planning Meeting${NC}"
-send_event "meeting.ended" '{
-    "event": "meeting.ended",
-    "payload": {
-        "account_id": "account123",
-        "object": {
-            "uuid": "uuid3",
-            "id": "meeting-3",
-            "host_id": "host-3",
-            "topic": "Sprint Planning",
-            "type": 2
-        }
-    },
-    "event_ts": '"$(date +%s)"'000
-}'
-
-echo -e "\n${GREEN}Demo data generation complete!${NC}"
-echo -e "You should now be able to see meeting rooms with active meetings in your Zrooms web interface."
-echo -e "Visit ${HOST} in your web browser to view the results.\n"
+# Run the main function
+main "$@"

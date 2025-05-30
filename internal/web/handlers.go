@@ -129,3 +129,8 @@ func (h *Handler) HandlePartialMeetingList(w http.ResponseWriter, r *http.Reques
 func (h *Handler) NotifyMeetingUpdate(meeting *models.Meeting) {
 	h.sseManager.NotifyMeetingUpdate(meeting)
 }
+
+// Shutdown gracefully shuts down the web handler and its SSE manager
+func (h *Handler) Shutdown() {
+	h.sseManager.Shutdown()
+}

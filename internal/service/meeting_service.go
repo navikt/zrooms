@@ -103,58 +103,6 @@ func (s *MeetingService) GetMeetingStatusData(ctx context.Context, includeEnded 
 	return result, nil
 }
 
-// GetAllMeetings returns all meetings
-func (s *MeetingService) GetAllMeetings() ([]*models.Meeting, error) {
-	return s.repo.ListAllMeetings(context.Background())
-}
-
-// GetMeeting returns a meeting by ID
-func (s *MeetingService) GetMeeting(id string) (*models.Meeting, error) {
-	return s.repo.GetMeeting(context.Background(), id)
-}
-
-// CreateMeeting creates a new meeting
-func (s *MeetingService) CreateMeeting(meeting *models.Meeting) error {
-	err := s.repo.SaveMeeting(context.Background(), meeting)
-	if err != nil {
-		return err
-	}
-
-	// Notify all registered callbacks about the new meeting
-	s.notifyUpdate(meeting)
-	return nil
-}
-
-// UpdateMeeting updates an existing meeting
-func (s *MeetingService) UpdateMeeting(meeting *models.Meeting) error {
-	err := s.repo.SaveMeeting(context.Background(), meeting)
-	if err != nil {
-		return err
-	}
-
-	// Notify all registered callbacks about the update
-	s.notifyUpdate(meeting)
-	return nil
-}
-
-// DeleteMeeting deletes a meeting by ID
-func (s *MeetingService) DeleteMeeting(id string) error {
-	// Get the meeting first so we can send notification
-	meeting, err := s.repo.GetMeeting(context.Background(), id)
-	if err != nil {
-		return err
-	}
-
-	err = s.repo.DeleteMeeting(context.Background(), id)
-	if err != nil {
-		return err
-	}
-
-	// Notify all registered callbacks about the deletion
-	s.notifyUpdate(meeting)
-	return nil
-}
-
 // UpdateParticipantCount updates a meeting's participant count and notifies listeners
 func (s *MeetingService) UpdateParticipantCount(meetingID string) error {
 	meeting, err := s.repo.GetMeeting(context.Background(), meetingID)

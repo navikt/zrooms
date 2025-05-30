@@ -22,10 +22,5 @@ func SetupRoutes(repo repository.Repository, meetingService *service.MeetingServ
 	webhookHandler := NewWebhookHandler(repo, meetingService)
 	mux.Handle("/webhook", webhookHandler)
 
-	// Meeting management endpoints
-	meetingHandler := NewMeetingHandler(repo, meetingService)
-	mux.Handle("/api/meetings", meetingHandler)
-	mux.Handle("/api/meetings/", meetingHandler)
-
 	return mux
 }

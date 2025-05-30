@@ -89,6 +89,9 @@ func main() {
 	case <-shutdown:
 		log.Println("Shutting down server...")
 
+		// First, shutdown the web handler to close SSE connections
+		webHandler.Shutdown()
+
 		// Create a deadline to wait for
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
