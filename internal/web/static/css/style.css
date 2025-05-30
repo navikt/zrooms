@@ -42,9 +42,65 @@ header {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-header h1 {
+.header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+}
+
+.title-section h1 {
     font-size: 2rem;
     margin-bottom: 0.25rem;
+}
+
+.title-section p {
+    margin: 0;
+    opacity: 0.9;
+}
+
+.auth-section {
+    display: flex;
+    align-items: center;
+}
+
+.install-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background-color: rgba(255, 255, 255, 0.15);
+    color: var(--header-text);
+    text-decoration: none;
+    padding: 0.5rem 1rem;
+    border-radius: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    font-size: 0.9rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.install-btn:hover {
+    background-color: rgba(255, 255, 255, 0.25);
+    border-color: rgba(255, 255, 255, 0.5);
+    transform: translateY(-1px);
+}
+
+.install-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Responsive header */
+@media (max-width: 768px) {
+    .header-content {
+        flex-direction: column;
+        text-align: center;
+    }
+    
+    .title-section h1 {
+        font-size: 1.5rem;
+    }
 }
 
 /* Main content styles */
