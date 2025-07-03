@@ -25,7 +25,6 @@ spec:
       autoLoginIgnorePaths:
         - /oauth
         - /webhook
-        - /events
   replicas:
     min: 1
     max: 1

@@ -2,6 +2,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 	"time"
@@ -90,4 +91,13 @@ func getEnvBool(key string, defaultValue bool) bool {
 // IsZoomConfigValid checks if all required Zoom configuration is present
 func (c ZoomConfig) IsZoomConfigValid() bool {
 	return c.ClientID != "" && c.ClientSecret != "" && c.RedirectURI != ""
+}
+
+// GetOAuthURL generates the Zoom OAuth authorization URL
+func (c ZoomConfig) GetOAuthURL() string {
+	if !c.IsZoomConfigValid() {
+		return ""
+	}
+	return fmt.Sprintf("https://zoom.us/oauth/authorize?response_type=code&client_id=%s&redirect_uri=%s",
+		c.ClientID, c.RedirectURI)
 }

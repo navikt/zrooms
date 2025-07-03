@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/service"
 )
@@ -81,14 +82,17 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prepare view model
+	zoomConfig := config.GetZoomConfig()
 	viewModel := struct {
 		Meetings    []service.MeetingStatusData
 		LastUpdated string
 		CurrentYear int
+		OAuthURL    string
 	}{
 		Meetings:    meetings,
 		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear: time.Now().Year(),
+		OAuthURL:    zoomConfig.GetOAuthURL(),
 	}
 
 	// Render template
