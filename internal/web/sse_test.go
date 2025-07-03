@@ -170,9 +170,6 @@ func TestSSEServeHTTP_EventStream(t *testing.T) {
 	// Wait for ServeHTTP to complete
 	<-done
 
-	// We no longer need to verify GetAllMeetings was called since
-	// our HTMX implementation uses a different approach
-	// mockService.AssertExpectations(t)
 }
 
 func TestNotifyMeetingUpdate(t *testing.T) {
