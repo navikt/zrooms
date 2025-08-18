@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     environment: prod-gcp:appsec
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
           go-version-file: 'go.mod'
@@ -24,7 +24,7 @@ jobs:
         with:
           team: appsec
           push_image: true
-      - uses: nais/deploy/actions/deploy@e79279e20795c1a03a92e8ae0bad4b770fd4e6d4 # ratchet:nais/deploy/actions/deploy@v2
+      - uses: nais/deploy/actions/deploy@961addd1e4d4211f1a7333ada5fde85f7c9aa5b7 # ratchet:nais/deploy/actions/deploy@v2
         env:
           RESOURCE: .nais/nais.yml
           CLUSTER: prod-gcp
