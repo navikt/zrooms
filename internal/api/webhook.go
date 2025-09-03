@@ -285,6 +285,10 @@ func (h *WebhookHandler) handleMeetingEnded(ctx context.Context, event *models.W
 				meeting.Topic = payload.Object.Topic
 			}
 		}
+		// Preserve operator email from existing meeting if not set in the ended event
+		if meeting.OperatorEmail == "" && existingMeeting.OperatorEmail != "" {
+			meeting.OperatorEmail = existingMeeting.OperatorEmail
+		}
 	}
 
 	// Clear all participants when a meeting ends

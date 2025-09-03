@@ -86,7 +86,8 @@ func (h *AdminHandler) handleAdminDashboard(w http.ResponseWriter, r *http.Reque
 	err = h.templates.ExecuteTemplate(w, "dashboard.html", viewModel)
 	if err != nil {
 		log.Printf("Error rendering admin template: %v", err)
-		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		// Don't call http.Error here as headers may already be written
+		return
 	}
 }
 
@@ -131,7 +132,8 @@ func (h *AdminHandler) handleMeetingsList(w http.ResponseWriter, r *http.Request
 	err = h.templates.ExecuteTemplate(w, "meetings.html", viewModel)
 	if err != nil {
 		log.Printf("Error rendering meetings template: %v", err)
-		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		// Don't call http.Error here as headers may already be written
+		return
 	}
 }
 
@@ -164,11 +166,13 @@ func (h *AdminHandler) handleMeetingDetail(w http.ResponseWriter, r *http.Reques
 	viewModel := struct {
 		Meeting          *models.Meeting
 		ParticipantCount int
+		HostID           string // Add this field for template compatibility
 		LastUpdated      string
 		CurrentYear      int
 	}{
 		Meeting:          meeting,
 		ParticipantCount: participantCount,
+		HostID:           meeting.Host.ID, // Extract host ID for easy template access
 		LastUpdated:      time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear:      time.Now().Year(),
 	}
@@ -177,7 +181,9 @@ func (h *AdminHandler) handleMeetingDetail(w http.ResponseWriter, r *http.Reques
 	err = h.templates.ExecuteTemplate(w, "meeting_detail.html", viewModel)
 	if err != nil {
 		log.Printf("Error rendering meeting detail template: %v", err)
-		http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		// Don't call http.Error here as headers may already be written
+		// Just log the error - the template may have partially rendered
+		return
 	}
 }
 

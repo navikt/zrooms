@@ -16,6 +16,7 @@ type WebhookEvent struct {
 type StandardEventPayload struct {
 	AccountID string      `json:"account_id"`
 	Object    EventObject `json:"object"`
+	Operator  string      `json:"operator,omitempty"` // Email address of the user who performed the action
 }
 
 // EventObject contains details about the meeting object in a Zoom webhook event
@@ -48,7 +49,7 @@ func (e *WebhookEvent) ProcessMeetingCreated() *Meeting {
 		return nil
 	}
 
-	return &Meeting{
+	meeting := &Meeting{
 		ID:        payload.Object.ID,
 		Topic:     payload.Object.Topic,
 		StartTime: payload.Object.StartTime,
@@ -59,6 +60,13 @@ func (e *WebhookEvent) ProcessMeetingCreated() *Meeting {
 		},
 		Participants: []Participant{},
 	}
+
+	// Capture operator email if available
+	if payload.Operator != "" {
+		meeting.OperatorEmail = payload.Operator
+	}
+
+	return meeting
 }
 
 // ProcessMeetingStarted handles a meeting.started event
@@ -68,7 +76,7 @@ func (e *WebhookEvent) ProcessMeetingStarted() *Meeting {
 		return nil
 	}
 
-	return &Meeting{
+	meeting := &Meeting{
 		ID:        payload.Object.ID,
 		Topic:     payload.Object.Topic,
 		StartTime: time.Now(),
@@ -79,6 +87,13 @@ func (e *WebhookEvent) ProcessMeetingStarted() *Meeting {
 		},
 		Participants: []Participant{},
 	}
+
+	// Capture operator email if available
+	if payload.Operator != "" {
+		meeting.OperatorEmail = payload.Operator
+	}
+
+	return meeting
 }
 
 // ProcessMeetingEnded handles a meeting.ended event
@@ -88,7 +103,7 @@ func (e *WebhookEvent) ProcessMeetingEnded() *Meeting {
 		return nil
 	}
 
-	return &Meeting{
+	meeting := &Meeting{
 		ID:      payload.Object.ID,
 		Topic:   payload.Object.Topic,
 		EndTime: time.Now(),
@@ -97,6 +112,13 @@ func (e *WebhookEvent) ProcessMeetingEnded() *Meeting {
 			ID: payload.Object.HostID,
 		},
 	}
+
+	// Capture operator email if available
+	if payload.Operator != "" {
+		meeting.OperatorEmail = payload.Operator
+	}
+
+	return meeting
 }
 
 // ProcessParticipantJoined handles a meeting.participant_joined event

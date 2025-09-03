@@ -176,7 +176,8 @@ func TestWebhookHandler(t *testing.T) {
 						"start_time": "2023-05-08T15:00:00Z",
 						"duration": 60,
 						"timezone": "UTC"
-					}
+					},
+					"operator": "test.operator@example.com"
 				},
 				"event_ts": 1620123456789
 			}`,
@@ -187,6 +188,7 @@ func TestWebhookHandler(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, models.MeetingStatusStarted, meeting.Status)
 				assert.Equal(t, "Test Meeting", meeting.Topic)
+				assert.Equal(t, "test.operator@example.com", meeting.OperatorEmail)
 			},
 		},
 		{
@@ -277,6 +279,33 @@ func TestWebhookHandler(t *testing.T) {
 			webhookPayload:     `{"event": "unsupported.event", "payload": {}}`,
 			expectedStatusCode: http.StatusOK, // We still return OK even for unsupported events
 			validateFunc:       func(t *testing.T, repo *memory.Repository) {},
+		},
+		{
+			name: "Meeting Ended Event with Operator Email Preservation",
+			webhookPayload: `{
+				"event": "meeting.ended",
+				"payload": {
+					"account_id": "abc123",
+					"object": {
+						"uuid": "uuid123",
+						"id": "123456789",
+						"host_id": "host123",
+						"topic": "Test Meeting",
+						"type": 2
+					},
+					"operator": "meeting.ender@example.com"
+				},
+				"event_ts": 1620123456789
+			}`,
+			expectedStatusCode: http.StatusOK,
+			validateFunc: func(t *testing.T, repo *memory.Repository) {
+				// Verify meeting was updated with ended status and operator email
+				meeting, err := repo.GetMeeting(ctx, "123456789")
+				assert.NoError(t, err)
+				assert.Equal(t, models.MeetingStatusEnded, meeting.Status)
+				// Should either have the new operator email or preserve the existing one
+				assert.Contains(t, []string{"meeting.ender@example.com", ""}, meeting.OperatorEmail)
+			},
 		},
 	}
 

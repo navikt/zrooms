@@ -21,6 +21,7 @@ type MeetingState struct {
 	StartTime      time.Time
 	EndTime        time.Time
 	ParticipantIDs map[string]struct{} // Store only participant IDs
+	OperatorEmail  string              // Email of the user who created/updated the meeting
 }
 
 // Repository implements the repository interface with in-memory storage
@@ -51,6 +52,7 @@ func (r *Repository) SaveMeeting(ctx context.Context, meeting *models.Meeting) e
 			Status:         meeting.Status,
 			StartTime:      meeting.StartTime,
 			ParticipantIDs: make(map[string]struct{}),
+			OperatorEmail:  meeting.OperatorEmail,
 		}
 		r.meetingStates[meeting.ID] = state
 	} else {
@@ -60,6 +62,11 @@ func (r *Repository) SaveMeeting(ctx context.Context, meeting *models.Meeting) e
 		// Only update topic if it's provided and not empty
 		if meeting.Topic != "" {
 			state.Topic = meeting.Topic
+		}
+
+		// Update operator email if provided
+		if meeting.OperatorEmail != "" {
+			state.OperatorEmail = meeting.OperatorEmail
 		}
 
 		// Set end time if the meeting has ended
@@ -83,12 +90,13 @@ func (r *Repository) GetMeeting(ctx context.Context, id string) (*models.Meeting
 
 	// Convert state back to a Meeting model with only the necessary data
 	meeting := &models.Meeting{
-		ID:           state.ID,
-		Topic:        state.Topic,
-		Status:       state.Status,
-		StartTime:    state.StartTime,
-		EndTime:      state.EndTime,
-		Participants: []models.Participant{}, // Empty slice, we don't store participant details
+		ID:            state.ID,
+		Topic:         state.Topic,
+		Status:        state.Status,
+		StartTime:     state.StartTime,
+		EndTime:       state.EndTime,
+		OperatorEmail: state.OperatorEmail,
+		Participants:  []models.Participant{}, // Empty slice, we don't store participant details
 	}
 
 	return meeting, nil
@@ -105,12 +113,13 @@ func (r *Repository) ListMeetings(ctx context.Context) ([]*models.Meeting, error
 		// Only include active meetings (not ended) for backward compatibility
 		if state.Status != models.MeetingStatusEnded {
 			meeting := &models.Meeting{
-				ID:           state.ID,
-				Topic:        state.Topic,
-				Status:       state.Status,
-				StartTime:    state.StartTime,
-				EndTime:      state.EndTime,
-				Participants: []models.Participant{}, // Empty slice, we don't store participant details
+				ID:            state.ID,
+				Topic:         state.Topic,
+				Status:        state.Status,
+				StartTime:     state.StartTime,
+				EndTime:       state.EndTime,
+				OperatorEmail: state.OperatorEmail,
+				Participants:  []models.Participant{}, // Empty slice, we don't store participant details
 			}
 			meetings = append(meetings, meeting)
 		}
@@ -128,12 +137,13 @@ func (r *Repository) ListAllMeetings(ctx context.Context) ([]*models.Meeting, er
 	for _, state := range r.meetingStates {
 		// Include all meetings, including ended ones
 		meeting := &models.Meeting{
-			ID:           state.ID,
-			Topic:        state.Topic,
-			Status:       state.Status,
-			StartTime:    state.StartTime,
-			EndTime:      state.EndTime,
-			Participants: []models.Participant{}, // Empty slice, we don't store participant details
+			ID:            state.ID,
+			Topic:         state.Topic,
+			Status:        state.Status,
+			StartTime:     state.StartTime,
+			EndTime:       state.EndTime,
+			OperatorEmail: state.OperatorEmail,
+			Participants:  []models.Participant{}, // Empty slice, we don't store participant details
 		}
 		meetings = append(meetings, meeting)
 	}

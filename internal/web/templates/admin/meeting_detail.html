@@ -52,6 +52,10 @@
                             <span class="detail-label">Host ID:</span>
                             <span class="detail-value">{{if .Meeting.HostID}}{{.Meeting.HostID}}{{else}}-{{end}}</span>
                         </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Created/Managed by:</span>
+                            <span class="detail-value">{{if .Meeting.OperatorEmail}}{{.Meeting.OperatorEmail}}{{else}}-{{end}}</span>
+                        </div>
                     </div>
 
                     <div class="detail-section">

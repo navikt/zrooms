@@ -54,6 +54,7 @@
                         <th>Meeting ID</th>
                         <th>Topic</th>
                         <th>Status</th>
+                        <th>Created/Managed by</th>
                         <th>Start Time</th>
                         <th>End Time</th>
                         <th>Actions</th>
@@ -65,6 +66,7 @@
                         <td><code>{{.ID}}</code></td>
                         <td>{{.Topic}}</td>
                         <td><span class="{{statusClass .Status}}">{{statusText .Status}}</span></td>
+                        <td>{{if .OperatorEmail}}{{.OperatorEmail}}{{else}}-{{end}}</td>
                         <td>{{formatDateTime .StartTime}}</td>
                         <td>{{formatDateTime .EndTime}}</td>
                         <td>

@@ -28,11 +28,12 @@
             
             {{if .Meetings}}
             <table class="meetings-table">
-                <thead>
+                                <thead>
                     <tr>
                         <th>Meeting ID</th>
                         <th>Topic</th>
                         <th>Status</th>
+                        <th>Created/Managed by</th>
                         <th>Participants</th>
                         <th>Start Time</th>
                         <th>End Time</th>
@@ -46,6 +47,7 @@
                         <td><span class="meeting-id">{{.Meeting.ID}}</span></td>
                         <td>{{.Meeting.Topic}}</td>
                         <td><span class="{{statusClass .Meeting.Status}}">{{statusText .Meeting.Status}}</span></td>
+                        <td>{{if .Meeting.OperatorEmail}}{{.Meeting.OperatorEmail}}{{else}}-{{end}}</td>
                         <td>
                             {{if eq .Meeting.Status 1}}
                                 <span class="participant-badge">{{.ParticipantCount}}</span>

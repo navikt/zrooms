@@ -19,10 +19,13 @@ type TokenIntrospectionRequest struct {
 }
 
 // TokenIntrospectionResponse represents the response from the introspection endpoint
+// NAIS introspection returns claims at the top level, not in a nested claims field
 type TokenIntrospectionResponse struct {
-	Active bool                   `json:"active"`
-	Claims map[string]interface{} `json:"claims,omitempty"`
-	Error  string                 `json:"error,omitempty"`
+	Active            bool   `json:"active"`
+	NAVident          string `json:"NAVident,omitempty"`
+	PreferredUsername string `json:"preferred_username,omitempty"`
+	Sub               string `json:"sub,omitempty"`
+	Error             string `json:"error,omitempty"`
 }
 
 // AuthMiddleware provides authentication for admin routes
@@ -141,74 +144,17 @@ func (auth *AuthMiddleware) validateToken(token string) (bool, string, error) {
 		return false, "", fmt.Errorf("failed to parse response: %w", err)
 	}
 
-	// Also parse as a generic map to see the full response structure
-	var fullResponse map[string]interface{}
-	if err := json.Unmarshal(respBody, &fullResponse); err != nil {
-		log.Printf("Failed to parse response as generic map: %v", err)
-		fullResponse = nil
-	} else {
-		responseKeys := make([]string, 0, len(fullResponse))
-		for key, value := range fullResponse {
-			responseKeys = append(responseKeys, fmt.Sprintf("%s(%T)", key, value))
-		}
-		log.Printf("Full introspection response structure: [%s]", strings.Join(responseKeys, ", "))
-	}
-
 	if introspectionResp.Error != "" {
 		return false, "", fmt.Errorf("introspection error: %s", introspectionResp.Error)
 	}
 
-	// Safe logging of claims structure (keys and types only)
-	if introspectionResp.Claims != nil {
-		claimKeys := make([]string, 0, len(introspectionResp.Claims))
-		for key, value := range introspectionResp.Claims {
-			claimKeys = append(claimKeys, fmt.Sprintf("%s(%T)", key, value))
-		}
-		log.Printf("Token validation successful, found %d claims: [%s]", len(introspectionResp.Claims), strings.Join(claimKeys, ", "))
-	} else {
-		log.Printf("Token validation successful, but no claims found in response")
-	}
-
-	// Extract NAVident from claims
 	var navIdent string
-
-	// First try to get NAVident from the nested claims field
-	if introspectionResp.Claims != nil {
-		// Try different possible claim names for NAVident
-		possibleNavIdentClaims := []string{"NAVident", "navident", "nav_ident", "preferred_username", "sub", "upn"}
-
-		for _, claimName := range possibleNavIdentClaims {
-			if navIdentClaim, exists := introspectionResp.Claims[claimName]; exists {
-				if navIdentStr, ok := navIdentClaim.(string); ok && navIdentStr != "" {
-					navIdent = navIdentStr
-					log.Printf("Found NAVident in nested claims['%s']: %s", claimName, navIdent)
-					break
-				} else {
-					log.Printf("Nested claim '%s' exists but is not a valid string: %T", claimName, navIdentClaim)
-				}
-			}
-		}
-	}
-
-	// If not found in nested claims, try top-level response fields
-	if navIdent == "" && fullResponse != nil {
-		possibleNavIdentClaims := []string{"NAVident", "navident", "nav_ident", "preferred_username", "sub", "upn"}
-
-		for _, claimName := range possibleNavIdentClaims {
-			if navIdentClaim, exists := fullResponse[claimName]; exists {
-				if navIdentStr, ok := navIdentClaim.(string); ok && navIdentStr != "" {
-					navIdent = navIdentStr
-					log.Printf("Found NAVident in top-level response['%s']: %s", claimName, navIdent)
-					break
-				} else {
-					log.Printf("Top-level field '%s' exists but is not a valid string: %T", claimName, navIdentClaim)
-				}
-			}
-		}
+	if introspectionResp.NAVident != "" {
+		navIdent = introspectionResp.NAVident
 	}
 
 	if navIdent == "" {
-		log.Printf("NAVident not found in nested claims or top-level response fields")
+		log.Printf("NAVident not found in token response")
 	}
 
 	return introspectionResp.Active, navIdent, nil

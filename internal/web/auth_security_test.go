@@ -54,10 +54,18 @@ func NewMockIntrospectionServer() *MockIntrospectionServer {
 			Active: isValid,
 		}
 
-		// Add claims if token is valid and has claims
+		// Add NAVident if token is valid and has claims
 		if isValid {
 			if claims, exists := mock.tokenClaims[req.Token]; exists {
-				response.Claims = claims
+				if navIdent, ok := claims["NAVident"].(string); ok {
+					response.NAVident = navIdent
+				}
+				if preferredUsername, ok := claims["preferred_username"].(string); ok {
+					response.PreferredUsername = preferredUsername
+				}
+				if sub, ok := claims["sub"].(string); ok {
+					response.Sub = sub
+				}
 			}
 		}
 
