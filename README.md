@@ -62,15 +62,11 @@ docker run -p 8080:8080 zrooms
 Configuration is handled through environment variables:
 
 - `PORT`: HTTP server port (default: 8080)
-- `REFRESH_RATE`: Web UI auto-refresh interval in seconds (default: 30)
-- `LOG_LEVEL`: Logging level (default: info)
-- `USE_SSE`: Enable/disable Server-Sent Events (default: true)
 - `ZOOM_CLIENT_ID`: Zoom OAuth client ID
 - `ZOOM_CLIENT_SECRET`: Zoom OAuth client secret
 - `ZOOM_REDIRECT_URI`: Redirect URI for Zoom OAuth
 - `ZOOM_WEBHOOK_URL`: URL for Zoom to send webhook events
 - `ZOOM_WEBHOOK_SECRET_TOKEN`: Secret token for validating Zoom webhook requests
-- `REDIS_URL`: Redis connection URL (optional)
 
 ## Usage
 
@@ -112,25 +108,6 @@ Zrooms supports multiple storage backends:
 The repository interface allows for easy implementation of additional storage options.
 
 ## Development
-
-### Project Structure
-
-```
-zrooms/
-├── cmd/zrooms/           # Application entrypoint
-├── internal/
-│   ├── api/              # API handlers and routes
-│   ├── config/           # Application configuration
-│   ├── models/           # Data models
-│   ├── repository/       # Data access layer
-│   │   ├── memory/       # In-memory implementation
-│   │   └── redis/        # Redis implementation
-│   ├── service/          # Business logic
-│   └── web/              # Web UI templates and handlers
-│       ├── static/       # CSS and JavaScript
-│       └── templates/    # HTML templates
-└── scripts/              # Utility scripts
-```
 
 ### Running Tests
 
