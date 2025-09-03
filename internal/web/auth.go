@@ -145,14 +145,40 @@ func (auth *AuthMiddleware) validateToken(token string) (bool, string, error) {
 		return false, "", fmt.Errorf("introspection error: %s", introspectionResp.Error)
 	}
 
+	// Safe logging of claims structure (keys and types only)
+	if introspectionResp.Claims != nil {
+		claimKeys := make([]string, 0, len(introspectionResp.Claims))
+		for key, value := range introspectionResp.Claims {
+			claimKeys = append(claimKeys, fmt.Sprintf("%s(%T)", key, value))
+		}
+		log.Printf("Token validation successful, found %d claims: [%s]", len(introspectionResp.Claims), strings.Join(claimKeys, ", "))
+	} else {
+		log.Printf("Token validation successful, but no claims found in response")
+	}
+
 	// Extract NAVident from claims
 	var navIdent string
 	if introspectionResp.Claims != nil {
-		if navIdentClaim, exists := introspectionResp.Claims["NAVident"]; exists {
-			if navIdentStr, ok := navIdentClaim.(string); ok {
-				navIdent = navIdentStr
+		// Try different possible claim names for NAVident
+		possibleNavIdentClaims := []string{"NAVident", "navident", "nav_ident", "preferred_username", "sub", "upn"}
+		
+		for _, claimName := range possibleNavIdentClaims {
+			if navIdentClaim, exists := introspectionResp.Claims[claimName]; exists {
+				if navIdentStr, ok := navIdentClaim.(string); ok && navIdentStr != "" {
+					navIdent = navIdentStr
+					log.Printf("Found NAVident in claim '%s': %s", claimName, navIdent)
+					break
+				} else {
+					log.Printf("Claim '%s' exists but is not a valid string: %T", claimName, navIdentClaim)
+				}
 			}
 		}
+		
+		if navIdent == "" {
+			log.Printf("NAVident not found in any expected claim names: %v", possibleNavIdentClaims)
+		}
+	} else {
+		log.Printf("No claims found in token response")
 	}
 
 	return introspectionResp.Active, navIdent, nil
@@ -161,6 +187,7 @@ func (auth *AuthMiddleware) validateToken(token string) (bool, string, error) {
 // isAuthorizedAdmin checks if the given NAVident is in the list of authorized admins
 func (auth *AuthMiddleware) isAuthorizedAdmin(navIdent string) bool {
 	if navIdent == "" {
+		log.Printf("Authorization denied: NAVident is empty")
 		return false
 	}
 
@@ -175,9 +202,11 @@ func (auth *AuthMiddleware) isAuthorizedAdmin(navIdent string) bool {
 	for _, admin := range admins {
 		admin = strings.TrimSpace(admin)
 		if admin == navIdent {
+			log.Printf("Authorization granted for NAVident: %s", navIdent)
 			return true
 		}
 	}
 
+	log.Printf("Authorization denied: NAVident '%s' not found in admin list (checked %d admins)", navIdent, len(admins))
 	return false
 }
