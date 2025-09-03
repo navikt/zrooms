@@ -68,7 +68,7 @@ type TokenResponse struct {
 	Scope       string `json:"scope"`
 }
 
-// APIManager handles Zoom API access token management using OAuth client credentials
+// APIManager handles Zoom API access token management using OAuth account credentials
 type APIManager struct {
 	config      config.ZoomConfig
 	accessToken string
@@ -93,15 +93,15 @@ func (m *APIManager) GetClient() (*APIClient, error) {
 	return NewAPIClient(m.accessToken), nil
 }
 
-// refreshAccessToken gets a new access token using OAuth client credentials flow
+// refreshAccessToken gets a new access token using OAuth account credentials flow
 func (m *APIManager) refreshAccessToken() error {
 	if m.config.ClientID == "" || m.config.ClientSecret == "" {
 		return fmt.Errorf("zoom client ID and secret must be configured")
 	}
 
-	// Prepare the request data for OAuth client credentials flow
+	// Prepare the request data for OAuth account credentials flow
 	data := url.Values{}
-	data.Set("grant_type", "client_credentials")
+	data.Set("grant_type", "account_credentials")
 
 	req, err := http.NewRequest("POST", "https://zoom.us/oauth/token", strings.NewReader(data.Encode()))
 	if err != nil {

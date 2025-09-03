@@ -15,6 +15,10 @@ spec:
   port: 8080
   ingresses:
     - https://zrooms.nav.no
+  accessPolicy:
+    outbound:
+      external:
+        - host: zoom.us
   azure:
     application:
       enabled: true
