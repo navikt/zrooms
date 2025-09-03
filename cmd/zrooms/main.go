@@ -44,6 +44,12 @@ func main() {
 		log.Fatalf("Failed to initialize web handler: %v", err)
 	}
 
+	// Set up admin routes
+	adminHandler, err := web.NewAdminHandler(meetingService, repo, "./internal/web/templates")
+	if err != nil {
+		log.Fatalf("Failed to initialize admin handler: %v", err)
+	}
+
 	// Register the SSE update callback with the meeting service
 	meetingService.RegisterUpdateCallback(webHandler.NotifyMeetingUpdate)
 
@@ -52,6 +58,9 @@ func main() {
 
 	// Set up web UI routes
 	webHandler.SetupRoutes(mux)
+
+	// Set up admin routes
+	adminHandler.SetupAdminRoutes(mux)
 
 	// Get port from environment variable or use default
 	port := os.Getenv("PORT")

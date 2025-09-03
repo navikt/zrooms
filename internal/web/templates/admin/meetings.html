@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zrooms Admin - All Meetings</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+    <nav class="admin-nav">
+        <div class="container">
+            <h1>Zrooms Admin</h1>
+            <div class="nav-links">
+                <a href="/admin">Dashboard</a>
+                <a href="/admin/meetings">All Meetings</a>
+                <a href="/">Public View</a>
+            </div>
+        </div>
+    </nav>
+    
+    <main class="container">
+        <div class="meetings-container">
+            <div class="meetings-header">
+                <h2>All Meetings</h2>
+                <span>{{len .Meetings}} total meetings</span>
+            </div>
+            
+            {{if .Meetings}}
+            <table class="meetings-table">
+                <thead>
+                    <tr>
+                        <th>Meeting ID</th>
+                        <th>Topic</th>
+                        <th>Status</th>
+                        <th>Participants</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Duration</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Meetings}}
+                    <tr>
+                        <td><span class="meeting-id">{{.Meeting.ID}}</span></td>
+                        <td>{{.Meeting.Topic}}</td>
+                        <td><span class="{{statusClass .Meeting.Status}}">{{statusText .Meeting.Status}}</span></td>
+                        <td>
+                            {{if eq .Meeting.Status 1}}
+                                <span class="participant-badge">{{.ParticipantCount}}</span>
+                            {{else}}
+                                <span style="color: #95a5a6;">-</span>
+                            {{end}}
+                        </td>
+                        <td>{{formatDateTime .Meeting.StartTime}}</td>
+                        <td>{{formatDateTime .Meeting.EndTime}}</td>
+                        <td>
+                            {{if and (not .Meeting.StartTime.IsZero) (not .Meeting.EndTime.IsZero)}}
+                                {{printf "%.0f min" (.Meeting.EndTime.Sub .Meeting.StartTime).Minutes}}
+                            {{else if not .Meeting.StartTime.IsZero}}
+                                {{if eq .Meeting.Status 1}}
+                                    {{printf "%.0f min" (now.Sub .Meeting.StartTime).Minutes}}
+                                {{else}}
+                                    -
+                                {{end}}
+                            {{else}}
+                                -
+                            {{end}}
+                        </td>
+                        <td>
+                            <div class="actions">
+                                <a href="/admin/meetings/{{.Meeting.ID}}" class="btn btn-view">View</a>
+                                <form method="POST" action="/admin/meetings/delete/{{.Meeting.ID}}" style="display: inline;" 
+                                      onsubmit="return confirm('Are you sure you want to delete this meeting?')">
+                                    <button type="submit" class="btn btn-delete">Delete</button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+            {{else}}
+            <div class="no-meetings">
+                <h3>No Meetings Found</h3>
+                <p>No meetings have been stored in the database yet.</p>
+                <p>Meetings will appear here when they are created through Zoom webhooks.</p>
+            </div>
+            {{end}}
+        </div>
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>&copy; {{.CurrentYear}} Zrooms Admin - Last updated: {{.LastUpdated}}</p>
+        </div>
+    </footer>
+</body>
+</html>

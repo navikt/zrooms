@@ -19,6 +19,9 @@ spec:
     application:
       enabled: true
       allowAllUsers: true
+      claims:
+        extra:
+          - "NAVident"
     sidecar:
       enabled: true
       autoLogin: true
@@ -49,6 +52,8 @@ spec:
   env:
     - name: REDIS_ENABLED
       value: "true"
+    - name: "NAV_IDENT_ADMINS"
+      value: "A158227"
   observability:
     logging:
       destinations:

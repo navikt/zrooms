@@ -7,15 +7,6 @@ import (
 	"net/http"
 )
 
-// ZoomTokenResponse represents the response from Zoom's OAuth token endpoint
-type ZoomTokenResponse struct {
-	AccessToken  string `json:"access_token"`
-	TokenType    string `json:"token_type"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresIn    int    `json:"expires_in"`
-	Scope        string `json:"scope"`
-}
-
 // OAuthRedirectHandler handles the redirect from Zoom OAuth flow.
 // This endpoint is called by Zoom after a user authorizes the application.
 // The OAuth application already has the webhooks configured, so no webhook creation is needed.

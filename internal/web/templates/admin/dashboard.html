@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zrooms Admin - Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+    <nav class="admin-nav">
+        <div class="container">
+            <h1>Zrooms Admin</h1>
+            <div class="nav-links">
+                <a href="/admin">Dashboard</a>
+                <a href="/admin/meetings">All Meetings</a>
+                <a href="/">Public View</a>
+            </div>
+        </div>
+    </nav>
+    
+    <main class="container">
+        <h2>Dashboard Overview</h2>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number">{{.Stats.TotalMeetings}}</div>
+                <div class="stat-label">Total Meetings</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{.Stats.ActiveMeetings}}</div>
+                <div class="stat-label">Active Meetings</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{.Stats.EndedMeetings}}</div>
+                <div class="stat-label">Ended Meetings</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{.Stats.ScheduledMeetings}}</div>
+                <div class="stat-label">Scheduled Meetings</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">{{.Stats.TotalParticipants}}</div>
+                <div class="stat-label">Current Participants</div>
+            </div>
+        </div>
+
+        {{if .Meetings}}
+        <div class="recent-meetings">
+            <h2>Recent Meetings (Last 10)</h2>
+            <table class="meetings-table">
+                <thead>
+                    <tr>
+                        <th>Meeting ID</th>
+                        <th>Topic</th>
+                        <th>Status</th>
+                        <th>Start Time</th>
+                        <th>End Time</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range (slice .Meetings 0 10)}}
+                    <tr>
+                        <td><code>{{.ID}}</code></td>
+                        <td>{{.Topic}}</td>
+                        <td><span class="{{statusClass .Status}}">{{statusText .Status}}</span></td>
+                        <td>{{formatDateTime .StartTime}}</td>
+                        <td>{{formatDateTime .EndTime}}</td>
+                        <td>
+                            <a href="/admin/meetings/{{.ID}}" class="btn-view">View</a>
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+            {{if gt (len .Meetings) 10}}
+            <a href="/admin/meetings" class="view-all-btn">View All {{len .Meetings}} Meetings</a>
+            {{end}}
+        </div>
+        {{else}}
+        <div class="recent-meetings">
+            <h2>No Meetings Found</h2>
+            <div class="no-meetings">
+                <p>No meetings have been stored in the database yet.</p>
+                <p>Meetings will appear here when they are created through Zoom webhooks.</p>
+            </div>
+        </div>
+        {{end}}
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>&copy; {{.CurrentYear}} Zrooms Admin - Last updated: {{.LastUpdated}}</p>
+        </div>
+    </footer>
+</body>
+</html>
