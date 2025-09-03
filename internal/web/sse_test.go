@@ -27,6 +27,10 @@ func (m *MockMeetingService) NotifyMeetingStarted(meeting *models.Meeting) {
 	m.Called(meeting)
 }
 
+func (m *MockMeetingService) NotifyMeetingUpdated(meeting *models.Meeting) {
+	m.Called(meeting)
+}
+
 func (m *MockMeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
 	m.Called(meeting)
 }

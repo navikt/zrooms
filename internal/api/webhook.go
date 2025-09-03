@@ -16,7 +16,6 @@ import (
 	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
-	"github.com/navikt/zrooms/internal/utils"
 	"github.com/navikt/zrooms/internal/web"
 )
 
@@ -142,6 +141,8 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.handleMeetingStarted(ctx, &event)
 	case "meeting.ended":
 		h.handleMeetingEnded(ctx, &event)
+	case "meeting.updated":
+		h.handleMeetingUpdated(ctx, &event)
 	case "meeting.participant_joined":
 		h.handleParticipantJoined(ctx, &event)
 	case "meeting.participant_left":
@@ -234,7 +235,7 @@ func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models
 		return
 	}
 
-	log.Printf("Meeting started: ID=%s, Topic=%s", meeting.ID, utils.SanitizeLogString(meeting.Topic))
+	log.Printf("Meeting started: ID=%s", meeting.ID)
 
 	// Parse the standard event payload to access object properties
 	var payload models.StandardEventPayload
@@ -256,6 +257,38 @@ func (h *WebhookHandler) handleMeetingStarted(ctx context.Context, event *models
 	// Notify meeting service about the started meeting
 	if h.meetingService != nil {
 		h.meetingService.NotifyMeetingStarted(meeting)
+	}
+}
+
+func (h *WebhookHandler) handleMeetingUpdated(ctx context.Context, event *models.WebhookEvent) {
+	meeting := event.ProcessMeetingUpdated()
+	if meeting == nil {
+		log.Printf("Failed to process meeting.updated event")
+		return
+	}
+
+	log.Printf("Meeting updated: ID=%s", meeting.ID)
+
+	// Parse the standard event payload to access object properties
+	var payload models.StandardEventPayload
+	if err := json.Unmarshal(event.Payload, &payload); err != nil {
+		log.Printf("Error parsing payload for meeting updated event: %v", err)
+		return
+	}
+
+	// Explicitly ensure the topic is set (fix for failing test)
+	if meeting.Topic == "" && payload.Object.Topic != "" {
+		meeting.Topic = payload.Object.Topic
+	}
+
+	// Save the meeting first to ensure it exists in the repository
+	if err := h.repo.SaveMeeting(ctx, meeting); err != nil {
+		log.Printf("Error saving meeting: %v", err)
+	}
+
+	// Notify meeting service about the updated meeting
+	if h.meetingService != nil {
+		h.meetingService.NotifyMeetingUpdated(meeting)
 	}
 }
 

@@ -73,6 +73,7 @@
                         <td>
                             <div class="actions">
                                 <a href="/admin/meetings/{{.Meeting.ID}}" class="btn btn-view">View</a>
+                                <a href="/admin/meetings/raw/{{.Meeting.ID}}" class="btn btn-view" target="_blank" title="View Raw Zoom API Data">Raw</a>
                                 <form method="POST" action="/admin/meetings/delete/{{.Meeting.ID}}" style="display: inline;" 
                                       onsubmit="return confirm('Are you sure you want to delete this meeting?')">
                                     <button type="submit" class="btn btn-delete">Delete</button>

@@ -14,6 +14,7 @@ type MeetingServicer interface {
 
 	// Webhook notification methods
 	NotifyMeetingStarted(meeting *models.Meeting)
+	NotifyMeetingUpdated(meeting *models.Meeting)
 	NotifyMeetingEnded(meeting *models.Meeting)
 	NotifyParticipantJoined(meetingID string, participantID string)
 	NotifyParticipantLeft(meetingID string, participantID string)

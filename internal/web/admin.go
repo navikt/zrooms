@@ -2,16 +2,19 @@ package web
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
 	"github.com/navikt/zrooms/internal/service"
+	"github.com/navikt/zrooms/internal/zoom"
 )
 
 // AdminHandler manages admin dashboard requests
@@ -52,6 +55,7 @@ func (h *AdminHandler) SetupAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/meetings", auth.RequireAuth(h.handleMeetingsList))
 	mux.HandleFunc("/admin/meetings/", auth.RequireAuth(h.handleMeetingDetail))
 	mux.HandleFunc("/admin/meetings/delete/", auth.RequireAuth(h.handleDeleteMeeting))
+	mux.HandleFunc("/admin/meetings/raw/", auth.RequireAuth(h.handleMeetingRawData))
 }
 
 // handleAdminDashboard renders the main admin dashboard
@@ -213,6 +217,60 @@ func (h *AdminHandler) handleDeleteMeeting(w http.ResponseWriter, r *http.Reques
 
 	// Redirect back to meetings list
 	http.Redirect(w, r, "/admin/meetings", http.StatusSeeOther)
+}
+
+// handleMeetingRawData fetches and displays raw Zoom API data for a meeting
+func (h *AdminHandler) handleMeetingRawData(w http.ResponseWriter, r *http.Request) {
+	// Extract meeting ID from URL path
+	meetingID := strings.TrimPrefix(r.URL.Path, "/admin/meetings/raw/")
+	if meetingID == "" {
+		http.Error(w, "Meeting ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Create Zoom API manager
+	apiManager := zoom.NewAPIManager()
+	client, err := apiManager.GetClient()
+	if err != nil {
+		log.Printf("Error creating Zoom API client: %v", err)
+		http.Error(w, fmt.Sprintf("Zoom API configuration error: %v", err), http.StatusServiceUnavailable)
+		return
+	}
+
+	// Fetch raw meeting details from Zoom API
+	rawData, err := client.GetMeetingRawData(meetingID)
+	if err != nil {
+		log.Printf("Error fetching meeting details for %s: %v", meetingID, err)
+		http.Error(w, fmt.Sprintf("Failed to fetch meeting details: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Pretty format the JSON
+	var prettyJSON interface{}
+	if err := json.Unmarshal(rawData, &prettyJSON); err != nil {
+		log.Printf("Error parsing JSON for meeting %s: %v", meetingID, err)
+		// Return raw data if parsing fails
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=meeting_%s_raw.json", meetingID))
+		w.Write(rawData)
+		return
+	}
+
+	// Format as pretty JSON
+	prettyBytes, err := json.MarshalIndent(prettyJSON, "", "  ")
+	if err != nil {
+		log.Printf("Error formatting JSON for meeting %s: %v", meetingID, err)
+		// Return raw data if formatting fails
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=meeting_%s_raw.json", meetingID))
+		w.Write(rawData)
+		return
+	}
+
+	// Set content type and write response
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=meeting_%s_raw.json", meetingID))
+	w.Write(prettyBytes)
 }
 
 // AdminStats holds statistics for the admin dashboard

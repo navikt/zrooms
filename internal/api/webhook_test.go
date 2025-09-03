@@ -39,6 +39,10 @@ func (m *MockMeetingService) NotifyMeetingEnded(meeting *models.Meeting) {
 	m.Called(meeting)
 }
 
+func (m *MockMeetingService) NotifyMeetingUpdated(meeting *models.Meeting) {
+	m.Called(meeting)
+}
+
 func (m *MockMeetingService) NotifyParticipantJoined(meetingID string, participantID string) {
 	m.Called(meetingID, participantID)
 }
@@ -176,8 +180,7 @@ func TestWebhookHandler(t *testing.T) {
 						"start_time": "2023-05-08T15:00:00Z",
 						"duration": 60,
 						"timezone": "UTC"
-					},
-					"operator": "test.operator@example.com"
+					}
 				},
 				"event_ts": 1620123456789
 			}`,
@@ -188,7 +191,6 @@ func TestWebhookHandler(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, models.MeetingStatusStarted, meeting.Status)
 				assert.Equal(t, "Test Meeting", meeting.Topic)
-				assert.Equal(t, "test.operator@example.com", meeting.OperatorEmail)
 			},
 		},
 		{

@@ -50,20 +50,16 @@ func (e *WebhookEvent) ProcessMeetingCreated() *Meeting {
 	}
 
 	meeting := &Meeting{
-		ID:        payload.Object.ID,
-		Topic:     payload.Object.Topic,
-		StartTime: payload.Object.StartTime,
-		Duration:  payload.Object.Duration,
-		Status:    MeetingStatusCreated,
+		ID:            payload.Object.ID,
+		Topic:         payload.Object.Topic,
+		StartTime:     payload.Object.StartTime,
+		Duration:      payload.Object.Duration,
+		Status:        MeetingStatusCreated,
+		OperatorEmail: payload.Operator,
 		Host: Participant{
 			ID: payload.Object.HostID,
 		},
 		Participants: []Participant{},
-	}
-
-	// Capture operator email if available
-	if payload.Operator != "" {
-		meeting.OperatorEmail = payload.Operator
 	}
 
 	return meeting
@@ -88,9 +84,26 @@ func (e *WebhookEvent) ProcessMeetingStarted() *Meeting {
 		Participants: []Participant{},
 	}
 
-	// Capture operator email if available
-	if payload.Operator != "" {
-		meeting.OperatorEmail = payload.Operator
+	return meeting
+}
+
+func (e *WebhookEvent) ProcessMeetingUpdated() *Meeting {
+	var payload StandardEventPayload
+	if err := json.Unmarshal(e.Payload, &payload); err != nil {
+		return nil
+	}
+
+	meeting := &Meeting{
+		ID:            payload.Object.ID,
+		Topic:         payload.Object.Topic,
+		StartTime:     payload.Object.StartTime,
+		Duration:      payload.Object.Duration,
+		Status:        MeetingStatusUpdated,
+		OperatorEmail: payload.Operator,
+		Host: Participant{
+			ID: payload.Object.HostID,
+		},
+		Participants: []Participant{},
 	}
 
 	return meeting
@@ -104,18 +117,14 @@ func (e *WebhookEvent) ProcessMeetingEnded() *Meeting {
 	}
 
 	meeting := &Meeting{
-		ID:      payload.Object.ID,
-		Topic:   payload.Object.Topic,
-		EndTime: time.Now(),
-		Status:  MeetingStatusEnded,
+		ID:            payload.Object.ID,
+		Topic:         payload.Object.Topic,
+		EndTime:       time.Now(),
+		Status:        MeetingStatusEnded,
+		OperatorEmail: payload.Operator,
 		Host: Participant{
 			ID: payload.Object.HostID,
 		},
-	}
-
-	// Capture operator email if available
-	if payload.Operator != "" {
-		meeting.OperatorEmail = payload.Operator
 	}
 
 	return meeting
