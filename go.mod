@@ -4,7 +4,7 @@ go 1.24.3
 
 require (
 	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/redis/go-redis/v9 v9.12.1
+	github.com/redis/go-redis/v9 v9.13.0
 	github.com/stretchr/testify v1.11.1
 )
 
