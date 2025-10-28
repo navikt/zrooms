@@ -50,12 +50,9 @@ spec:
     path: health/ready
   envFrom:
     - secret: zrooms
-  valkey:
-    - instance: zrooms
-      access: readwrite
   env:
     - name: REDIS_ENABLED
-      value: "true"
+      value: "false"
     - name: "NAV_IDENT_ADMINS"
       value: "A158227"
   observability:
