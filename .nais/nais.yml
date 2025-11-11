@@ -5,11 +5,6 @@ metadata:
     team: appsec
   name: zrooms
   namespace: appsec
-  annotations:
-    texas.nais.io/enabled: "true"
-    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
-    nginx.ingress.kubernetes.io/proxy-buffering: "off"
 spec:
   image: "{{ image }}"
   port: 8080
