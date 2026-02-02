@@ -3,8 +3,8 @@ module github.com/navikt/zrooms
 go 1.24.3
 
 require (
-	github.com/alicebob/miniredis/v2 v2.35.0
-	github.com/redis/go-redis/v9 v9.17.2
+	github.com/alicebob/miniredis/v2 v2.36.1
+	github.com/redis/go-redis/v9 v9.17.3
 	github.com/stretchr/testify v1.11.1
 )
 
