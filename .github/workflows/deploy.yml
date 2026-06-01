@@ -24,7 +24,7 @@ jobs:
         with:
           team: appsec
           push_image: true
-      - uses: nais/deploy/actions/deploy@a7f8690f9b367fcbf5348a0a1e21d44f1aae50eb # ratchet:nais/deploy/actions/deploy@v2
+      - uses: nais/deploy/actions/deploy@d57354b433c8d6847ab092467d9fe976a3d008aa # ratchet:nais/deploy/actions/deploy@v2
         env:
           RESOURCE: .nais/nais.yml
           CLUSTER: prod-gcp
