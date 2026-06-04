@@ -19,12 +19,12 @@ jobs:
         with:
           go-version-file: 'go.mod'
       - run: go test ./...
-      - uses: nais/docker-build-push@751a312f0803eb96a05a41fadf51be19b7be362c # ratchet:nais/docker-build-push@v0
+      - uses: nais/docker-build-push@05dbb6091b30bd84279c6d64a45ef8782fd410a5 # ratchet:nais/docker-build-push@v0
         id: docker-push
         with:
           team: appsec
           push_image: true
-      - uses: nais/deploy/actions/deploy@d57354b433c8d6847ab092467d9fe976a3d008aa # ratchet:nais/deploy/actions/deploy@v2
+      - uses: nais/deploy/actions/deploy@c55d6073d913975d2dada508bdfefc6427d39867 # ratchet:nais/deploy/actions/deploy@v2
         env:
           RESOURCE: .nais/nais.yml
           CLUSTER: prod-gcp
