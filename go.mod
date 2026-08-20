@@ -5,14 +5,12 @@ go 1.26.6
 require (
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/redis/go-redis/v9 v9.22.0
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.0
 )
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/yuin/gopher-lua v1.1.1 // indirect
