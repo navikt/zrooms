@@ -8,6 +8,12 @@ metadata:
 spec:
   image: "{{ image }}"
   port: 8080
+  gcp:
+    buckets:
+      - name: nav-appsec-zrooms-prod-meetings
+        publicAccessPrevention: true
+        lifecycleCondition:
+          age: 7
   ingresses:
     - https://zrooms.nav.no
   accessPolicy:
@@ -46,8 +52,8 @@ spec:
   envFrom:
     - secret: zrooms
   env:
-    - name: REDIS_ENABLED
-      value: "false"
+    - name: GCS_BUCKET
+      value: nav-appsec-zrooms-prod-meetings
     - name: "NAV_IDENT_ADMINS"
       value: "A158227"
   observability:

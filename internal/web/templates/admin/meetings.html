@@ -47,9 +47,9 @@
                         <td><span class="meeting-id">{{.Meeting.ID}}</span></td>
                         <td>{{.Meeting.Topic}}</td>
                         <td><span class="{{statusClass .Meeting.Status}}">{{statusText .Meeting.Status}}</span></td>
-                        <td>{{if .Meeting.OperatorEmail}}{{.Meeting.OperatorEmail}}{{else}}-{{end}}</td>
+                        <td>{{if .Meeting.CreatorEmail}}{{.Meeting.CreatorEmail}}{{else if .Meeting.OperatorEmail}}{{.Meeting.OperatorEmail}}{{else}}-{{end}}</td>
                         <td>
-                            {{if eq .Meeting.Status 1}}
+                            {{if isActive .Meeting.Status}}
                                 <span class="participant-badge">{{.ParticipantCount}}</span>
                             {{else}}
                                 <span style="color: #95a5a6;">-</span>
@@ -61,7 +61,7 @@
                             {{if and (not .Meeting.StartTime.IsZero) (not .Meeting.EndTime.IsZero)}}
                                 {{printf "%.0f min" (.Meeting.EndTime.Sub .Meeting.StartTime).Minutes}}
                             {{else if not .Meeting.StartTime.IsZero}}
-                                {{if eq .Meeting.Status 1}}
+                                {{if isActive .Meeting.Status}}
                                     {{printf "%.0f min" (now.Sub .Meeting.StartTime).Minutes}}
                                 {{else}}
                                     -

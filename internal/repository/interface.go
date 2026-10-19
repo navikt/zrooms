@@ -1,61 +1,50 @@
-// Package repository defines interfaces for data storage
 package repository
 
 import (
 	"context"
-	"fmt"
-	"log"
+	"errors"
+	"time"
 
-	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/models"
 )
 
-// Repository defines the interface for storing and retrieving meeting data
+var (
+	ErrNotFound = errors.New("meeting not found")
+	ErrConflict = errors.New("meeting changed concurrently")
+)
+
+const Retention = 7 * 24 * time.Hour
+
 type Repository interface {
-	// Meeting operations
-	SaveMeeting(ctx context.Context, meeting *models.Meeting) error
-	GetMeeting(ctx context.Context, id string) (*models.Meeting, error)
-	ListMeetings(ctx context.Context) ([]*models.Meeting, error)
-	ListAllMeetings(ctx context.Context) ([]*models.Meeting, error)
-	DeleteMeeting(ctx context.Context, id string) error
-
-	// Participant operations - only stores IDs, not PII
-	AddParticipantToMeeting(ctx context.Context, meetingID string, participantID string) error
-	RemoveParticipantFromMeeting(ctx context.Context, meetingID string, participantID string) error
-	CountParticipantsInMeeting(ctx context.Context, meetingID string) (int, error)
-	ClearPartipantsInMeeting(ctx context.Context, meetingID string) error
+	ApplyEvent(context.Context, models.MeetingEvent) (*models.Meeting, error)
+	GetMeeting(context.Context, string) (*models.Meeting, error)
+	ListAllMeetings(context.Context) ([]*models.Meeting, error)
+	DeleteMeeting(context.Context, string) error
+	Check(context.Context) error
 }
 
-// NewRepository creates a repository based on configuration
-func NewRepository(cfg config.RedisConfig) (Repository, error) {
-	if cfg.Enabled {
-		// Format the address based on host and port if not using URI
-		connectionInfo := cfg.URI
-		if connectionInfo == "" {
-			connectionInfo = fmt.Sprintf("%s:%s", cfg.Host, cfg.Port)
-		}
-
-		log.Printf("Using Redis repository at %s", connectionInfo)
-		repo, err := newRedisRepository(cfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create Redis repository: %w", err)
-		}
-		return repo, nil
-	}
-
-	log.Printf("Using in-memory repository")
-	return newMemoryRepository(), nil
+// Backend uses version 0 for an absent object. Writes must compare and swap.
+type Backend interface {
+	Read(context.Context, string) (*State, int64, error)
+	Write(context.Context, string, *State, int64) error
+	List(context.Context) ([]*State, error)
+	Check(context.Context) error
 }
 
-// Implementation constructors are imported dynamically to avoid circular dependencies
-// These are replaced with actual implementations when the factory is used
-
-var newRedisRepository = func(cfg config.RedisConfig) (Repository, error) {
-	// This function will be replaced by the actual implementation from redis package
-	return nil, fmt.Errorf("Redis repository not implemented")
+type Presence struct {
+	Present bool  `json:"present"`
+	EventTS int64 `json:"event_ts"`
 }
 
-var newMemoryRepository = func() Repository {
-	// This function will be replaced by the actual implementation from memory package
-	return nil
+// State keeps ordering markers, including departed participants, until expiry.
+type State struct {
+	SchemaVersion int                 `json:"schema_version"`
+	Meeting       models.Meeting      `json:"meeting"`
+	LifecycleTS   int64               `json:"lifecycle_ts"`
+	OccurrenceTS  int64               `json:"occurrence_ts"`
+	MetadataTS    int64               `json:"metadata_ts"`
+	OperatorTS    int64               `json:"operator_ts"`
+	Participants  map[string]Presence `json:"participants,omitempty"`
+	UpdatedAt     time.Time           `json:"updated_at"`
+	DeletedAt     int64               `json:"deleted_at,omitempty"`
 }

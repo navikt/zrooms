@@ -3,9 +3,8 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
-	"strconv"
-	"time"
 )
 
 // ZoomConfig holds all Zoom-related configuration
@@ -15,21 +14,6 @@ type ZoomConfig struct {
 	RedirectURI        string
 	WebhookURL         string
 	WebhookSecretToken string
-}
-
-// RedisConfig holds Redis/Valkey configuration
-type RedisConfig struct {
-	Enabled bool
-	// URI is prioritized if provided, otherwise individual connection parameters are used
-	URI       string
-	Host      string
-	Port      string
-	Username  string
-	Password  string
-	DB        int
-	KeyPrefix string
-	// TTL for meetings (0 means no expiration)
-	MeetingTTL time.Duration
 }
 
 // GetZoomConfig loads Zoom configuration from environment variables
@@ -43,28 +27,6 @@ func GetZoomConfig() ZoomConfig {
 	}
 }
 
-// GetRedisConfig loads Redis/Valkey configuration from environment variables
-func GetRedisConfig() RedisConfig {
-	// Parse TTL from environment variable (in hours)
-	ttlHours, _ := strconv.Atoi(getEnv("REDIS_MEETING_TTL_HOURS", "168")) // Default 7 days
-	ttl := time.Duration(ttlHours) * time.Hour
-
-	// Parse DB index
-	db, _ := strconv.Atoi(getEnv("REDIS_DB", "0"))
-
-	return RedisConfig{
-		Enabled:    getEnvBool("REDIS_ENABLED", false),
-		URI:        getEnv("REDIS_URI_ZROOMS", ""),
-		Host:       getEnv("REDIS_HOST_ZROOMS", getEnv("REDIS_ADDRESS", "localhost")),
-		Port:       getEnv("REDIS_PORT_ZROOMS", "6379"),
-		Username:   getEnv("REDIS_USERNAME_ZROOMS", ""),
-		Password:   getEnv("REDIS_PASSWORD_ZROOMS", getEnv("REDIS_PASSWORD", "")),
-		DB:         db,
-		KeyPrefix:  getEnv("REDIS_KEY_PREFIX", "zrooms:"),
-		MeetingTTL: ttl,
-	}
-}
-
 // getEnv retrieves an environment variable or returns a default value
 func getEnv(key, defaultValue string) string {
 	value := os.Getenv(key)
@@ -72,20 +34,6 @@ func getEnv(key, defaultValue string) string {
 		return defaultValue
 	}
 	return value
-}
-
-// getEnvBool retrieves a boolean environment variable
-func getEnvBool(key string, defaultValue bool) bool {
-	value := os.Getenv(key)
-	if value == "" {
-		return defaultValue
-	}
-
-	b, err := strconv.ParseBool(value)
-	if err != nil {
-		return defaultValue
-	}
-	return b
 }
 
 // IsZoomConfigValid checks if all required Zoom configuration is present
@@ -98,6 +46,18 @@ func (c ZoomConfig) GetOAuthURL() string {
 	if !c.IsZoomConfigValid() {
 		return ""
 	}
-	return fmt.Sprintf("https://zoom.us/oauth/authorize?response_type=code&client_id=%s&redirect_uri=%s",
-		c.ClientID, c.RedirectURI)
+	query := url.Values{
+		"response_type": {"code"}, "client_id": {c.ClientID}, "redirect_uri": {c.RedirectURI},
+	}
+	return "https://zoom.us/oauth/authorize?" + query.Encode()
+}
+
+func Validate() error {
+	if GetZoomConfig().WebhookSecretToken == "" {
+		return fmt.Errorf("ZOOM_WEBHOOK_SECRET_TOKEN is required")
+	}
+	if os.Getenv("NAIS_CLUSTER_NAME") != "" && os.Getenv("GCS_BUCKET") == "" {
+		return fmt.Errorf("GCS_BUCKET is required on NAIS; refusing volatile storage")
+	}
+	return nil
 }

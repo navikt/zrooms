@@ -52,7 +52,7 @@ function addConnectionIndicator(status) {
         indicator.style.backgroundColor = 'rgba(0, 128, 0, 0.7)';
         indicator.style.color = 'white';
     } else {
-        indicator.textContent = '● Using Page Refresh';
+        indicator.textContent = '● Refreshing Every Minute';
         indicator.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
         indicator.style.color = 'white';
     }

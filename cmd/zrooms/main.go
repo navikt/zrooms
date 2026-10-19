@@ -3,36 +3,47 @@ package main
 import (
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"cloud.google.com/go/storage"
 	"github.com/navikt/zrooms/internal/api"
 	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/repository"
+	"github.com/navikt/zrooms/internal/repository/gcs"
+	"github.com/navikt/zrooms/internal/repository/memory"
 	"github.com/navikt/zrooms/internal/service"
 	"github.com/navikt/zrooms/internal/web"
 )
 
 func main() {
-	// Get Redis configuration
-	redisConfig := config.GetRedisConfig()
-
-	// Initialize the repository using the factory
-	repo, err := repository.NewRepository(redisConfig)
-	if err != nil {
-		log.Fatalf("Failed to initialize repository: %v", err)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	if err := config.Validate(); err != nil {
+		log.Fatal(err)
 	}
-
-	// Check if we're using a Redis repository, and if so, close it properly on exit
-	if redisRepo, ok := repo.(interface{ Close() error }); ok {
-		defer func() {
-			if err := redisRepo.Close(); err != nil {
-				log.Printf("Error closing Redis connection: %v", err)
-			}
-		}()
+	var repo repository.Repository
+	if bucket := os.Getenv("GCS_BUCKET"); bucket != "" {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		client, err := storage.NewClient(ctx, storage.WithJSONReads())
+		if err != nil {
+			cancel()
+			log.Fatalf("Failed to create GCS client: %v", err)
+		}
+		defer client.Close()
+		repo = repository.NewStore(gcs.NewBackend(client, bucket))
+		err = repo.Check(ctx)
+		cancel()
+		if err != nil {
+			log.Fatalf("Failed to access meeting bucket: %v", err)
+		}
+		log.Print("Using GCS meeting storage")
+	} else {
+		log.Print("Using volatile in-memory storage for local development")
+		repo = memory.NewRepository()
 	}
 
 	// Initialize the service layer

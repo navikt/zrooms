@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 
+	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/repository"
 	"github.com/navikt/zrooms/internal/service"
 )
@@ -13,13 +14,13 @@ func SetupRoutes(repo repository.Repository, meetingService *service.MeetingServ
 
 	// Health check endpoints for Kubernetes
 	mux.HandleFunc("/health/live", HealthLiveHandler)
-	mux.HandleFunc("/health/ready", HealthReadyHandler)
+	mux.HandleFunc("/health/ready", HealthReadyHandler(repo))
 
 	// OAuth endpoint for Zoom app installation
 	mux.HandleFunc("/oauth/redirect", OAuthRedirectHandler)
 
 	// Zoom webhook endpoint
-	webhookHandler := NewWebhookHandler(repo, meetingService)
+	webhookHandler := NewWebhookHandler(meetingService, config.GetZoomConfig().WebhookSecretToken)
 	mux.Handle("/webhook", webhookHandler)
 
 	return mux

@@ -1,22 +1,17 @@
 package web
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 )
-
-// TokenIntrospectionRequest represents the payload sent to the introspection endpoint
-type TokenIntrospectionRequest struct {
-	IdentityProvider string `json:"identity_provider"`
-	Token            string `json:"token"`
-}
 
 // TokenIntrospectionResponse represents the response from the introspection endpoint
 // NAIS introspection returns claims at the top level, not in a nested claims field
@@ -75,7 +70,7 @@ func (auth *AuthMiddleware) RequireAuth(next http.HandlerFunc) http.HandlerFunc 
 		}
 
 		// Validate token with introspection endpoint
-		valid, navIdent, err := auth.validateToken(token)
+		valid, navIdent, err := auth.validateToken(r.Context(), token)
 		if err != nil {
 			log.Printf("Token validation error: %v", err)
 			http.Error(w, "Token validation failed", http.StatusInternalServerError)
@@ -89,7 +84,7 @@ func (auth *AuthMiddleware) RequireAuth(next http.HandlerFunc) http.HandlerFunc 
 
 		// Check if NAVident is in the admin list
 		if !auth.isAuthorizedAdmin(navIdent) {
-			log.Printf("Unauthorized access attempt from NAVident: %s", navIdent)
+			log.Print("Admin authorization denied")
 			http.Error(w, "Access denied", http.StatusForbidden)
 			return
 		}
@@ -100,25 +95,14 @@ func (auth *AuthMiddleware) RequireAuth(next http.HandlerFunc) http.HandlerFunc 
 }
 
 // validateToken validates the token with the introspection endpoint and returns NAVident
-func (auth *AuthMiddleware) validateToken(token string) (bool, string, error) {
-	// Prepare the introspection request
-	reqBody := TokenIntrospectionRequest{
-		IdentityProvider: "azuread",
-		Token:            token,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return false, "", fmt.Errorf("failed to marshal request body: %w", err)
-	}
-
-	// Create HTTP request
-	req, err := http.NewRequest("POST", auth.introspectionEndpoint, bytes.NewBuffer(jsonBody))
+func (auth *AuthMiddleware) validateToken(ctx context.Context, token string) (bool, string, error) {
+	data := url.Values{"identity_provider": {"entra_id"}, "token": {token}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, auth.introspectionEndpoint, strings.NewReader(data.Encode()))
 	if err != nil {
 		return false, "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	// Send the request
 	resp, err := auth.httpClient.Do(req)
@@ -128,14 +112,14 @@ func (auth *AuthMiddleware) validateToken(token string) (bool, string, error) {
 	defer resp.Body.Close()
 
 	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if err != nil {
 		return false, "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	// Check HTTP status
 	if resp.StatusCode != http.StatusOK {
-		return false, "", fmt.Errorf("introspection endpoint returned status %d: %s", resp.StatusCode, string(respBody))
+		return false, "", fmt.Errorf("introspection endpoint returned status %d", resp.StatusCode)
 	}
 
 	// Parse response
@@ -145,7 +129,7 @@ func (auth *AuthMiddleware) validateToken(token string) (bool, string, error) {
 	}
 
 	if introspectionResp.Error != "" {
-		return false, "", fmt.Errorf("introspection error: %s", introspectionResp.Error)
+		return false, "", nil
 	}
 
 	var navIdent string
@@ -178,11 +162,10 @@ func (auth *AuthMiddleware) isAuthorizedAdmin(navIdent string) bool {
 	for _, admin := range admins {
 		admin = strings.TrimSpace(admin)
 		if admin == navIdent {
-			log.Printf("Authorization granted for NAVident: %s", navIdent)
 			return true
 		}
 	}
 
-	log.Printf("Authorization denied: NAVident '%s' not found in admin list (checked %d admins)", navIdent, len(admins))
+	log.Print("Admin identity is not authorized")
 	return false
 }

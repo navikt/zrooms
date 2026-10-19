@@ -1,233 +1,81 @@
-// Package memory provides an in-memory implementation of the repository interface
 package memory
 
 import (
 	"context"
-	"errors"
 	"sync"
 	"time"
 
-	"github.com/navikt/zrooms/internal/models"
+	"github.com/navikt/zrooms/internal/repository"
 )
 
-// ErrNotFound is returned when a requested entity is not found
-var ErrNotFound = errors.New("entity not found")
-
-// MeetingState contains information about a meeting's state
-type MeetingState struct {
-	ID             string // Meeting ID
-	Topic          string // Meeting Topic
-	Status         models.MeetingStatus
-	StartTime      time.Time
-	EndTime        time.Time
-	ParticipantIDs map[string]struct{} // Store only participant IDs
-	OperatorEmail  string              // Email of the user who created/updated the meeting
+type entry struct {
+	state   *repository.State
+	version int64
 }
 
-// Repository implements the repository interface with in-memory storage
-type Repository struct {
-	meetingStates map[string]*MeetingState // Stores meeting state data
-	mu            sync.RWMutex
+type backend struct {
+	mu       sync.RWMutex
+	entries  map[string]entry
+	revision int64
 }
 
-// NewRepository creates a new in-memory repository
-func NewRepository() *Repository {
-	return &Repository{
-		meetingStates: make(map[string]*MeetingState),
+func NewRepository() *repository.Store {
+	return repository.NewStore(&backend{entries: make(map[string]entry)})
+}
+
+func clone(state *repository.State) *repository.State {
+	copy := *state
+	copy.Participants = make(map[string]repository.Presence, len(state.Participants))
+	for id, participant := range state.Participants {
+		copy.Participants[id] = participant
 	}
+	return &copy
 }
 
-// SaveMeeting saves meeting state information to the repository
-func (r *Repository) SaveMeeting(ctx context.Context, meeting *models.Meeting) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Check if the meeting state already exists
-	state, exists := r.meetingStates[meeting.ID]
-	if !exists {
-		// Create a new meeting state with minimal data
-		state = &MeetingState{
-			ID:             meeting.ID,
-			Topic:          meeting.Topic,
-			Status:         meeting.Status,
-			StartTime:      meeting.StartTime,
-			ParticipantIDs: make(map[string]struct{}),
-			OperatorEmail:  meeting.OperatorEmail,
-		}
-		r.meetingStates[meeting.ID] = state
-	} else {
-		// Update existing meeting state
-		state.Status = meeting.Status
-
-		// Only update topic if it's provided and not empty
-		if meeting.Topic != "" {
-			state.Topic = meeting.Topic
-		}
-
-		// Update operator email if provided
-		if meeting.OperatorEmail != "" {
-			state.OperatorEmail = meeting.OperatorEmail
-		}
-
-		// Set end time if the meeting has ended
-		if meeting.Status == models.MeetingStatusEnded {
-			state.EndTime = meeting.EndTime
-		}
+func (b *backend) Read(ctx context.Context, id string) (*repository.State, int64, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, 0, err
 	}
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	value, ok := b.entries[id]
+	if !ok {
+		return nil, 0, repository.ErrNotFound
+	}
+	return clone(value.state), value.version, nil
+}
 
+func (b *backend) Write(ctx context.Context, id string, state *repository.State, version int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.entries[id].version != version {
+		return repository.ErrConflict
+	}
+	b.revision++
+	b.entries[id] = entry{state: clone(state), version: b.revision}
 	return nil
 }
 
-// GetMeeting retrieves a meeting by ID
-func (r *Repository) GetMeeting(ctx context.Context, id string) (*models.Meeting, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	state, ok := r.meetingStates[id]
-	if !ok {
-		return nil, ErrNotFound
+func (b *backend) List(ctx context.Context) ([]*repository.State, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-
-	// Convert state back to a Meeting model with only the necessary data
-	meeting := &models.Meeting{
-		ID:            state.ID,
-		Topic:         state.Topic,
-		Status:        state.Status,
-		StartTime:     state.StartTime,
-		EndTime:       state.EndTime,
-		OperatorEmail: state.OperatorEmail,
-		Participants:  []models.Participant{}, // Empty slice, we don't store participant details
-	}
-
-	return meeting, nil
-}
-
-// ListMeetings returns all active meetings with minimal information
-// (does not include ended meetings for backward compatibility)
-func (r *Repository) ListMeetings(ctx context.Context) ([]*models.Meeting, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	meetings := make([]*models.Meeting, 0, len(r.meetingStates))
-	for _, state := range r.meetingStates {
-		// Only include active meetings (not ended) for backward compatibility
-		if state.Status != models.MeetingStatusEnded {
-			meeting := &models.Meeting{
-				ID:            state.ID,
-				Topic:         state.Topic,
-				Status:        state.Status,
-				StartTime:     state.StartTime,
-				EndTime:       state.EndTime,
-				OperatorEmail: state.OperatorEmail,
-				Participants:  []models.Participant{}, // Empty slice, we don't store participant details
-			}
-			meetings = append(meetings, meeting)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	states := make([]*repository.State, 0, len(b.entries))
+	for id, value := range b.entries {
+		if !time.Now().Before(value.state.UpdatedAt.Add(repository.Retention)) {
+			delete(b.entries, id)
+			continue
 		}
+		states = append(states, clone(value.state))
 	}
-
-	return meetings, nil
+	return states, nil
 }
 
-// ListAllMeetings returns all meetings with minimal information including ended meetings
-func (r *Repository) ListAllMeetings(ctx context.Context) ([]*models.Meeting, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	meetings := make([]*models.Meeting, 0, len(r.meetingStates))
-	for _, state := range r.meetingStates {
-		// Include all meetings, including ended ones
-		meeting := &models.Meeting{
-			ID:            state.ID,
-			Topic:         state.Topic,
-			Status:        state.Status,
-			StartTime:     state.StartTime,
-			EndTime:       state.EndTime,
-			OperatorEmail: state.OperatorEmail,
-			Participants:  []models.Participant{}, // Empty slice, we don't store participant details
-		}
-		meetings = append(meetings, meeting)
-	}
-
-	return meetings, nil
-}
-
-// DeleteMeeting removes a meeting by ID
-func (r *Repository) DeleteMeeting(ctx context.Context, id string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	_, ok := r.meetingStates[id]
-	if !ok {
-		return ErrNotFound
-	}
-
-	// Delete the meeting state
-	delete(r.meetingStates, id)
-
-	return nil
-}
-
-// AddParticipantToMeeting adds a participant ID to a meeting
-// We only store the participant ID, not any personal information
-func (r *Repository) AddParticipantToMeeting(ctx context.Context, meetingID string, participantID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Check if meeting exists
-	state, ok := r.meetingStates[meetingID]
-	if !ok {
-		return ErrNotFound
-	}
-
-	// Add participant ID to the meeting
-	state.ParticipantIDs[participantID] = struct{}{}
-
-	return nil
-}
-
-// RemoveParticipantFromMeeting removes a participant ID from a meeting
-func (r *Repository) RemoveParticipantFromMeeting(ctx context.Context, meetingID string, participantID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Check if meeting exists
-	state, ok := r.meetingStates[meetingID]
-	if !ok {
-		return ErrNotFound
-	}
-
-	// Remove participant ID from the meeting
-	delete(state.ParticipantIDs, participantID)
-
-	return nil
-}
-
-// CountParticipantsInMeeting counts the number of participants in a meeting
-func (r *Repository) CountParticipantsInMeeting(ctx context.Context, meetingID string) (int, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	// Check if meeting exists
-	state, ok := r.meetingStates[meetingID]
-	if !ok {
-		return 0, ErrNotFound
-	}
-
-	return len(state.ParticipantIDs), nil
-}
-
-func (r *Repository) ClearPartipantsInMeeting(ctx context.Context, meetingID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Check if meeting exists
-	state, ok := r.meetingStates[meetingID]
-	if !ok {
-		return ErrNotFound
-	}
-
-	// Clear all participant IDs from the meeting
-	state.ParticipantIDs = make(map[string]struct{})
-
-	return nil
+func (b *backend) Check(ctx context.Context) error {
+	return ctx.Err()
 }

@@ -16,7 +16,7 @@ Zroom is a production ready Go application that:
 - **Language**: Go 1.24+
 - **Framework**: Go standard libraries
 - **Testing**: Go standard testing package with testify for assertions
-- **Database**: Valkey/Redis for storage to handle application state
+- **Storage**: Google Cloud Storage for durable per-meeting state; in-memory storage for local development and tests
 - **Web Interface**: HTML, CSS, HTMX with SSE extension for real-time updates
 - **Webhook Integration**: Zoom API
 
@@ -60,6 +60,8 @@ Zroom is a production ready Go application that:
   - Participant left
 - Store relevant meeting data for status display
 - Minimize personally identifiable information, but keep a record of which user creates a meeting and make it accessible to the admin. Preferably by user email.
+- Persist each event atomically before acknowledging it. Preserve ordering markers and keep participant names and emails out of stored state and logs.
+- Expire meeting state seven days after the last accepted event; use GCS generation preconditions for concurrent writes.
 
 ## Web Interface Requirements
 

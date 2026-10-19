@@ -6,7 +6,7 @@
          hx-get="/partial/meetings"
          hx-target="#meeting-list-container"
          hx-swap="innerHTML"
-         hx-trigger="sse:update, load">
+         hx-trigger="sse:update, sse:connected, load, every 60s">
         {{template "meeting_list" .}}
     </div>
 </section>
@@ -39,7 +39,7 @@
                     {{end}}
                 </td>
                 <td class="center">{{.ParticipantCount}}</td>
-                <td>{{if .StartedAt}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
+                <td>{{if not .StartedAt.IsZero}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
             </tr>
             {{end}}
         </tbody>

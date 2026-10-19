@@ -66,7 +66,7 @@
                         <td><code>{{.ID}}</code></td>
                         <td>{{.Topic}}</td>
                         <td><span class="{{statusClass .Status}}">{{statusText .Status}}</span></td>
-                        <td>{{if .OperatorEmail}}{{.OperatorEmail}}{{else}}-{{end}}</td>
+                        <td>{{if .CreatorEmail}}{{.CreatorEmail}}{{else if .OperatorEmail}}{{.OperatorEmail}}{{else}}-{{end}}</td>
                         <td>{{formatDateTime .StartTime}}</td>
                         <td>{{formatDateTime .EndTime}}</td>
                         <td>

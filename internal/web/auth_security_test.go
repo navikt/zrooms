@@ -43,20 +43,24 @@ func NewMockIntrospectionServer() *MockIntrospectionServer {
 			return
 		}
 
-		var req TokenIntrospectionRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		if r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+			http.Error(w, "Invalid content type", http.StatusBadRequest)
 			return
 		}
+		if err := r.ParseForm(); err != nil || r.Form.Get("identity_provider") != "entra_id" {
+			http.Error(w, "Invalid introspection request", http.StatusBadRequest)
+			return
+		}
+		token := r.Form.Get("token")
 
-		isValid := mock.validTokens[req.Token]
+		isValid := mock.validTokens[token]
 		response := TokenIntrospectionResponse{
 			Active: isValid,
 		}
 
 		// Add NAVident if token is valid and has claims
 		if isValid {
-			if claims, exists := mock.tokenClaims[req.Token]; exists {
+			if claims, exists := mock.tokenClaims[token]; exists {
 				if navIdent, ok := claims["NAVident"].(string); ok {
 					response.NAVident = navIdent
 				}
@@ -125,9 +129,13 @@ func createTestAdminHandler(introspectionURL string) (*TestAdminHandler, func())
 			Name:  "Test Host",
 		},
 	}
-	repo.SaveMeeting(ctx, testMeeting)
-	repo.AddParticipantToMeeting(ctx, "test-meeting-123", "participant1")
-	repo.AddParticipantToMeeting(ctx, "test-meeting-123", "participant2")
+	_, err := repo.ApplyEvent(ctx, models.MeetingEvent{
+		Type: "meeting.started", EventTS: time.Now().UnixMilli(),
+		Meeting: models.Meeting{ID: testMeeting.ID, UUID: "test-occurrence", Topic: testMeeting.Topic},
+	})
+	if err != nil {
+		panic(err)
+	}
 
 	handler := &TestAdminHandler{
 		meetingService: meetingService,

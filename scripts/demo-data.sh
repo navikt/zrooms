@@ -18,6 +18,7 @@
 HOST="http://localhost:8080"
 WEBHOOK_ENDPOINT="/webhook"
 HEADER="Content-Type: application/json"
+: "${ZOOM_WEBHOOK_SECRET_TOKEN:?Set the same local webhook secret used by the application}"
 
 # Colors for output
 GREEN='\033[0;32m'
@@ -64,7 +65,17 @@ send_event() {
 
     echo -e "${YELLOW}📡 Sending ${event_type} event...${NC}"
 
-    response=$(curl -s -w "%{http_code}" -X POST -H "${HEADER}" -d "${payload}" "${HOST}${WEBHOOK_ENDPOINT}")
+    local timestamp=$(date +%s)
+    local signature
+    signature=$(printf '%s' "${payload}" | python3 -c '
+import hashlib, hmac, os, sys
+body = sys.stdin.buffer.read()
+message = b"v0:" + sys.argv[1].encode() + b":" + body
+print("v0=" + hmac.new(os.environ["ZOOM_WEBHOOK_SECRET_TOKEN"].encode(), message, hashlib.sha256).hexdigest())
+' "${timestamp}") || return 1
+    response=$(curl -s -w "%{http_code}" -X POST -H "${HEADER}" \
+        -H "x-zm-request-timestamp: ${timestamp}" -H "x-zm-signature: ${signature}" \
+        --data-binary "${payload}" "${HOST}${WEBHOOK_ENDPOINT}")
     http_code="${response: -3}"
 
     if [ "$http_code" -eq 200 ]; then

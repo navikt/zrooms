@@ -32,7 +32,7 @@ func NewHandler(meetingService *service.MeetingService, templatesDir string) (*H
 	}
 
 	// Create SSE manager (always enabled)
-	sseManager := NewSSEManager(meetingService)
+	sseManager := NewSSEManager()
 
 	return &Handler{
 		meetingService: meetingService,

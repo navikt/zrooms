@@ -30,15 +30,19 @@ type Participant struct {
 
 // Meeting represents a Zoom meeting
 type Meeting struct {
-	ID            string        `json:"id"`
-	Topic         string        `json:"topic"`
-	StartTime     time.Time     `json:"start_time"`
-	EndTime       time.Time     `json:"end_time,omitempty"`
-	Duration      int           `json:"duration"` // in minutes
-	Status        MeetingStatus `json:"status"`
-	Host          Participant   `json:"host"`
-	Participants  []Participant `json:"participants"`
-	OperatorEmail string        `json:"operator_email,omitempty"` // Email of the user who created/updated the meeting
+	ID               string        `json:"id"`
+	UUID             string        `json:"uuid,omitempty"`
+	Topic            string        `json:"topic"`
+	StartTime        time.Time     `json:"start_time"`
+	EndTime          time.Time     `json:"end_time,omitempty"`
+	Duration         int           `json:"duration"` // in minutes
+	Status           MeetingStatus `json:"status"`
+	Host             Participant   `json:"host"`
+	Participants     []Participant `json:"participants"`
+	OperatorEmail    string        `json:"operator_email,omitempty"` // Email of the user who created/updated the meeting
+	CreatorEmail     string        `json:"creator_email,omitempty"`
+	ParticipantCount int           `json:"-"`
+	UpdatedAt        time.Time     `json:"-"`
 }
 
 // AddParticipant adds a participant to the meeting

@@ -4,124 +4,86 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
 )
 
-// SSEManager handles server-sent events to clients using a broadcast channel
 type SSEManager struct {
-	broadcast      chan string
-	shutdown       chan struct{}
-	meetingService MeetingServicer
+	mu       sync.Mutex
+	clients  map[chan struct{}]struct{}
+	shutdown chan struct{}
+	once     sync.Once
 }
 
-// NewSSEManager creates a new server-sent events manager with broadcast channel
-func NewSSEManager(meetingService MeetingServicer) *SSEManager {
-	return &SSEManager{
-		broadcast:      make(chan string, 100), // Buffered channel to prevent blocking
-		shutdown:       make(chan struct{}),
-		meetingService: meetingService,
-	}
+func NewSSEManager() *SSEManager {
+	return &SSEManager{clients: make(map[chan struct{}]struct{}), shutdown: make(chan struct{})}
 }
 
-// ServeHTTP implements the http.Handler interface for SSE connections
 func (sm *SSEManager) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	defer func() {
-		if rec := recover(); rec != nil {
-			log.Printf("PANIC in SSE ServeHTTP: %v", rec)
-		}
-	}()
-
-	// Set simple SSE headers
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "text/event-stream")
-
-	// Add minimal CORS support
-	origin := r.Header.Get("Origin")
-	if origin != "" {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Cookie")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	controller := http.NewResponseController(w)
+	send := func(message string) error {
+		if err := controller.SetWriteDeadline(time.Now().Add(5 * time.Second)); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprint(w, message); err != nil {
+			return err
+		}
+		return controller.Flush()
 	}
-
-	// Handle CORS preflight
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
+	updates := make(chan struct{}, 1)
+	sm.mu.Lock()
+	sm.clients[updates] = struct{}{}
+	sm.mu.Unlock()
+	defer func() {
+		sm.mu.Lock()
+		delete(sm.clients, updates)
+		sm.mu.Unlock()
+	}()
+	if err := send("event: connected\ndata: connected\n\n"); err != nil {
+		log.Printf("SSE connection failed: %v", err)
 		return
 	}
-
-	// Make sure the response writer supports flushing
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		http.Error(w, "Streaming not supported", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("SSE client connected from %s", r.RemoteAddr)
-	defer log.Printf("SSE client disconnected")
-
-	// Send initial SSE comment to prime the connection
-	fmt.Fprint(w, ":\n\n")
-	flusher.Flush()
-
-	// Send initial connected event
-	fmt.Fprint(w, "event: connected\ndata: connected\n\n")
-	flusher.Flush()
-
-	// Set up heartbeat (every 10 seconds)
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
-
-	// Keep the connection alive and listen for broadcasts
 	for {
 		select {
 		case <-r.Context().Done():
-			log.Printf("SSE client context done - clean shutdown")
 			return
 		case <-sm.shutdown:
-			log.Printf("SSE manager shutting down - closing connection")
 			return
 		case <-heartbeat.C:
-			// Send heartbeat comment
-			_, err := fmt.Fprint(w, ":\n\n")
-			if err != nil {
-				log.Printf("Error sending heartbeat: %v", err)
+			if err := send(":\n\n"); err != nil {
 				return
 			}
-			flusher.Flush()
-		case message := <-sm.broadcast:
-			// Received a broadcast message, send it to this client
-			_, err := fmt.Fprint(w, message)
-			if err != nil {
-				log.Printf("Error sending broadcast message: %v", err)
+		case <-updates:
+			if err := send("event: update\ndata: update\n\n"); err != nil {
 				return
 			}
-			flusher.Flush()
 		}
 	}
 }
 
-// NotifyMeetingUpdate sends meeting updates to all connected clients via broadcast channel
-func (sm *SSEManager) NotifyMeetingUpdate(meeting *models.Meeting) {
-	log.Printf("Publishing SSE update event for meeting %s", meeting.ID)
-
-	// Create the SSE message
-	message := "event: update\ndata: update\n\n"
-
-	// Send to broadcast channel (non-blocking due to buffer)
-	select {
-	case sm.broadcast <- message:
-		log.Printf("Broadcast message sent to channel")
-	default:
-		log.Printf("Broadcast channel full, dropping message")
+func (sm *SSEManager) NotifyMeetingUpdate(_ *models.Meeting) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	for updates := range sm.clients {
+		select {
+		case updates <- struct{}{}:
+		default:
+			// One pending invalidation is sufficient: clients fetch the full view.
+		}
 	}
 }
 
-// Shutdown gracefully shuts down the SSE manager by closing the shutdown channel
 func (sm *SSEManager) Shutdown() {
-	log.Printf("Shutting down SSE manager")
-	close(sm.shutdown)
+	sm.once.Do(func() { close(sm.shutdown) })
 }

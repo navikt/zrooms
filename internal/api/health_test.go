@@ -1,12 +1,15 @@
 package api_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/navikt/zrooms/internal/api"
+	"github.com/navikt/zrooms/internal/repository/memory"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -46,7 +49,7 @@ func TestHealthReady(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	// Create the handler
-	handler := http.HandlerFunc(api.HealthReadyHandler)
+	handler := api.HealthReadyHandler(memory.NewRepository())
 
 	// Serve the request
 	handler.ServeHTTP(rr, req)
@@ -62,4 +65,15 @@ func TestHealthReady(t *testing.T) {
 	err = json.Unmarshal(rr.Body.Bytes(), &response)
 	assert.NoError(t, err)
 	assert.Equal(t, "UP", response["status"])
+}
+
+type failedCheck struct{}
+
+func (failedCheck) Check(context.Context) error { return errors.New("bucket unavailable") }
+
+func TestReadinessReportsStorageFailure(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	api.HealthReadyHandler(failedCheck{}).ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/health/ready", nil))
+	assert.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	assert.JSONEq(t, `{"status":"DOWN"}`, recorder.Body.String())
 }

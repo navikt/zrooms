@@ -1,8 +1,8 @@
 package web
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
@@ -32,6 +32,7 @@ func NewAdminHandler(meetingService *service.MeetingService, repo repository.Rep
 		"formatDateTime": formatDateTime,
 		"statusClass":    statusClass,
 		"statusText":     statusText,
+		"isActive":       func(status models.MeetingStatus) bool { return status == models.MeetingStatusStarted },
 		"slice":          slice,
 		"now":            time.Now,
 	}).ParseGlob(filepath.Join(templatesDir, "admin", "*.html"))
@@ -71,7 +72,7 @@ func (h *AdminHandler) handleAdminDashboard(w http.ResponseWriter, r *http.Reque
 	}
 
 	// Get statistics
-	stats := h.calculateStats(ctx, allMeetings)
+	stats := h.calculateStats(allMeetings)
 
 	// Prepare view model
 	viewModel := struct {
@@ -110,14 +111,9 @@ func (h *AdminHandler) handleMeetingsList(w http.ResponseWriter, r *http.Request
 	// Get participant counts for each meeting
 	meetingsWithCounts := make([]MeetingWithParticipants, 0, len(allMeetings))
 	for _, meeting := range allMeetings {
-		count, err := h.repo.CountParticipantsInMeeting(ctx, meeting.ID)
-		if err != nil {
-			count = 0 // Default to 0 if there's an error
-		}
-
 		meetingsWithCounts = append(meetingsWithCounts, MeetingWithParticipants{
 			Meeting:          meeting,
-			ParticipantCount: count,
+			ParticipantCount: meeting.ParticipantCount,
 		})
 	}
 
@@ -155,15 +151,13 @@ func (h *AdminHandler) handleMeetingDetail(w http.ResponseWriter, r *http.Reques
 	// Get the meeting
 	meeting, err := h.repo.GetMeeting(ctx, meetingID)
 	if err != nil {
-		log.Printf("Error getting meeting %s: %v", meetingID, err)
-		http.Error(w, "Meeting not found", http.StatusNotFound)
+		if errors.Is(err, repository.ErrNotFound) {
+			http.Error(w, "Meeting not found", http.StatusNotFound)
+		} else {
+			log.Printf("Error getting meeting: %v", err)
+			http.Error(w, "Unable to load meeting", http.StatusServiceUnavailable)
+		}
 		return
-	}
-
-	// Get participant count
-	participantCount, err := h.repo.CountParticipantsInMeeting(ctx, meetingID)
-	if err != nil {
-		participantCount = 0
 	}
 
 	// Prepare view model
@@ -175,7 +169,7 @@ func (h *AdminHandler) handleMeetingDetail(w http.ResponseWriter, r *http.Reques
 		CurrentYear      int
 	}{
 		Meeting:          meeting,
-		ParticipantCount: participantCount,
+		ParticipantCount: meeting.ParticipantCount,
 		HostID:           meeting.Host.ID, // Extract host ID for easy template access
 		LastUpdated:      time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear:      time.Now().Year(),
@@ -208,10 +202,14 @@ func (h *AdminHandler) handleDeleteMeeting(w http.ResponseWriter, r *http.Reques
 	ctx := r.Context()
 
 	// Delete the meeting
-	err := h.repo.DeleteMeeting(ctx, meetingID)
+	err := h.meetingService.DeleteMeeting(ctx, meetingID)
 	if err != nil {
-		log.Printf("Error deleting meeting %s: %v", meetingID, err)
-		http.Error(w, "Failed to delete meeting", http.StatusInternalServerError)
+		if errors.Is(err, repository.ErrNotFound) {
+			http.Error(w, "Meeting not found", http.StatusNotFound)
+		} else {
+			log.Printf("Error deleting meeting: %v", err)
+			http.Error(w, "Failed to delete meeting", http.StatusServiceUnavailable)
+		}
 		return
 	}
 
@@ -233,7 +231,7 @@ func (h *AdminHandler) handleMeetingRawData(w http.ResponseWriter, r *http.Reque
 	client, err := apiManager.GetClient()
 	if err != nil {
 		log.Printf("Error creating Zoom API client: %v", err)
-		http.Error(w, fmt.Sprintf("Zoom API configuration error: %v", err), http.StatusServiceUnavailable)
+		http.Error(w, "Zoom API unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -241,7 +239,7 @@ func (h *AdminHandler) handleMeetingRawData(w http.ResponseWriter, r *http.Reque
 	rawData, err := client.GetMeetingRawData(meetingID)
 	if err != nil {
 		log.Printf("Error fetching meeting details for %s: %v", meetingID, err)
-		http.Error(w, fmt.Sprintf("Failed to fetch meeting details: %v", err), http.StatusInternalServerError)
+		http.Error(w, "Unable to fetch meeting details", http.StatusBadGateway)
 		return
 	}
 
@@ -289,7 +287,7 @@ type MeetingWithParticipants struct {
 }
 
 // calculateStats computes statistics for the admin dashboard
-func (h *AdminHandler) calculateStats(ctx context.Context, meetings []*models.Meeting) AdminStats {
+func (h *AdminHandler) calculateStats(meetings []*models.Meeting) AdminStats {
 	stats := AdminStats{
 		TotalMeetings: len(meetings),
 	}
@@ -306,10 +304,7 @@ func (h *AdminHandler) calculateStats(ctx context.Context, meetings []*models.Me
 
 		// Count participants for active meetings
 		if meeting.Status == models.MeetingStatusStarted {
-			count, err := h.repo.CountParticipantsInMeeting(ctx, meeting.ID)
-			if err == nil {
-				stats.TotalParticipants += count
-			}
+			stats.TotalParticipants += meeting.ParticipantCount
 		}
 	}
 

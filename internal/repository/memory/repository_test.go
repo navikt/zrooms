@@ -2,138 +2,162 @@ package memory_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
+	"github.com/navikt/zrooms/internal/repository"
 	"github.com/navikt/zrooms/internal/repository/memory"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestMeetingRepository(t *testing.T) {
-	repo := memory.NewRepository()
+func TestEventLifecycle(t *testing.T) {
 	ctx := context.Background()
-
-	// Test meeting with minimal data
-	meeting := &models.Meeting{
-		ID:        "meeting123",
-		Status:    models.MeetingStatusStarted,
-		StartTime: time.Now(),
-	}
-
-	// Test SaveMeeting and GetMeeting
-	t.Run("SaveAndGetMeeting", func(t *testing.T) {
-		err := repo.SaveMeeting(ctx, meeting)
-		assert.NoError(t, err)
-
-		savedMeeting, err := repo.GetMeeting(ctx, meeting.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, meeting.ID, savedMeeting.ID)
-		assert.Equal(t, meeting.Status, savedMeeting.Status)
-		assert.Empty(t, savedMeeting.Participants, "Should not store participant details")
-	})
-
-	// Test ListMeetings
-	t.Run("ListMeetings", func(t *testing.T) {
-		meetings, err := repo.ListMeetings(ctx)
-		assert.NoError(t, err)
-		assert.Len(t, meetings, 1)
-		assert.Equal(t, meeting.ID, meetings[0].ID)
-	})
-
-	// Test DeleteMeeting
-	t.Run("DeleteMeeting", func(t *testing.T) {
-		err := repo.DeleteMeeting(ctx, meeting.ID)
-		assert.NoError(t, err)
-
-		_, err = repo.GetMeeting(ctx, meeting.ID)
-		assert.Error(t, err)
-	})
-}
-
-func TestParticipantOperations(t *testing.T) {
 	repo := memory.NewRepository()
-	ctx := context.Background()
-
-	// Create a meeting first
-	meeting := &models.Meeting{
-		ID:        "meeting456",
-		Status:    models.MeetingStatusStarted,
-		StartTime: time.Now(),
-	}
-	err := repo.SaveMeeting(ctx, meeting)
-	assert.NoError(t, err)
-
-	// Test participant operations with only IDs
-	t.Run("ParticipantOperations", func(t *testing.T) {
-		// Add participants by ID only
-		err := repo.AddParticipantToMeeting(ctx, meeting.ID, "user123")
-		assert.NoError(t, err)
-
-		// Count participants
-		count, err := repo.CountParticipantsInMeeting(ctx, meeting.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, count)
-
-		// Add another participant
-		err = repo.AddParticipantToMeeting(ctx, meeting.ID, "user456")
-		assert.NoError(t, err)
-
-		count, err = repo.CountParticipantsInMeeting(ctx, meeting.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, 2, count)
-
-		// Remove a participant
-		err = repo.RemoveParticipantFromMeeting(ctx, meeting.ID, "user123")
-		assert.NoError(t, err)
-
-		count, err = repo.CountParticipantsInMeeting(ctx, meeting.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, 1, count)
-	})
-}
-
-func TestMeetingWithParticipants(t *testing.T) {
-	repo := memory.NewRepository()
-	ctx := context.Background()
-
-	// Create a meeting
-	meeting := &models.Meeting{
-		ID:        "meeting789",
-		Topic:     "Important Discussion",
-		Status:    models.MeetingStatusStarted,
-		StartTime: time.Now(),
-	}
-	err := repo.SaveMeeting(ctx, meeting)
-	assert.NoError(t, err)
-
-	// Add participants
-	err = repo.AddParticipantToMeeting(ctx, meeting.ID, "user1")
-	assert.NoError(t, err)
-	err = repo.AddParticipantToMeeting(ctx, meeting.ID, "user2")
-	assert.NoError(t, err)
-
-	// Test participant count
-	t.Run("ParticipantCount", func(t *testing.T) {
-		count, err := repo.CountParticipantsInMeeting(ctx, meeting.ID)
-		assert.NoError(t, err)
-		assert.Equal(t, 2, count)
-	})
-
-	// End the meeting
-	meeting.Status = models.MeetingStatusEnded
-	meeting.EndTime = time.Now()
-	err = repo.SaveMeeting(ctx, meeting)
-	assert.NoError(t, err)
-
-	// Test that ended meetings are not included in ListMeetings
-	t.Run("EndedMeetingsNotListed", func(t *testing.T) {
-		meetings, err := repo.ListMeetings(ctx)
-		assert.NoError(t, err)
-
-		// Check if the ended meeting is excluded from active meetings list
-		for _, m := range meetings {
-			assert.NotEqual(t, meeting.ID, m.ID, "Ended meeting should not be in active meetings list")
+	base := time.Now().Add(-time.Minute).UnixMilli()
+	apply := func(kind string, offset int64, uuid, participant, topic string) *models.Meeting {
+		t.Helper()
+		event := models.MeetingEvent{
+			Type: kind, EventTS: base + offset, ParticipantID: participant,
+			Meeting: models.Meeting{
+				ID: "123", UUID: uuid, Topic: topic,
+				Host: models.Participant{ID: "host"}, OperatorEmail: "operator@example.test",
+				StartTime: time.UnixMilli(base), EndTime: time.UnixMilli(base + offset),
+			},
 		}
+		meeting, err := repo.ApplyEvent(ctx, event)
+		require.NoError(t, err)
+		return meeting
+	}
+
+	apply("meeting.created", 1, "", "", "Original topic")
+	apply("meeting.started", 10, "first", "", "")
+	apply("meeting.participant_joined", 20, "first", "guest-1", "")
+	apply("meeting.participant_joined", 21, "first", "guest-2", "")
+	require.Nil(t, apply("meeting.participant_joined", 20, "first", "guest-1", ""))
+	apply("meeting.updated", 22, "", "", "New topic")
+	meeting, err := repo.GetMeeting(ctx, "123")
+	require.NoError(t, err)
+	require.Equal(t, models.MeetingStatusStarted, meeting.Status)
+	require.Equal(t, 2, meeting.ParticipantCount)
+	require.Equal(t, "New topic", meeting.Topic)
+	require.Equal(t, "host", meeting.Host.ID)
+	require.Equal(t, "operator@example.test", meeting.CreatorEmail)
+	require.Equal(t, "operator@example.test", meeting.OperatorEmail)
+
+	apply("meeting.participant_left", 40, "first", "guest-1", "")
+	require.Nil(t, apply("meeting.participant_joined", 30, "first", "guest-1", ""))
+	apply("meeting.ended", 50, "first", "", "")
+	require.Nil(t, apply("meeting.started", 10, "first", "", ""))
+	require.Nil(t, apply("meeting.participant_joined", 60, "first", "guest-3", ""))
+	meeting, err = repo.GetMeeting(ctx, "123")
+	require.NoError(t, err)
+	require.Equal(t, models.MeetingStatusEnded, meeting.Status)
+	require.Zero(t, meeting.ParticipantCount)
+	require.Equal(t, time.UnixMilli(base), meeting.StartTime)
+	require.Equal(t, time.UnixMilli(base+50), meeting.EndTime)
+
+	apply("meeting.started", 100, "second", "", "")
+	apply("meeting.participant_joined", 110, "second", "guest-1", "")
+	require.Nil(t, apply("meeting.ended", 50, "first", "", ""))
+	meeting, err = repo.GetMeeting(ctx, "123")
+	require.NoError(t, err)
+	require.Equal(t, "second", meeting.UUID)
+	require.Equal(t, models.MeetingStatusStarted, meeting.Status)
+	require.Equal(t, 1, meeting.ParticipantCount)
+}
+
+func TestParticipantBeforeStartAndConcurrentUpdates(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute).UnixMilli()
+	meeting := models.Meeting{ID: "123", UUID: "instance", StartTime: time.UnixMilli(base)}
+	_, err := repo.ApplyEvent(ctx, models.MeetingEvent{
+		Type: "meeting.participant_joined", EventTS: base + 2, Meeting: meeting, ParticipantID: "first",
 	})
+	require.NoError(t, err)
+	_, err = repo.ApplyEvent(ctx, models.MeetingEvent{Type: "meeting.started", EventTS: base + 1, Meeting: meeting})
+	require.NoError(t, err)
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := repo.ApplyEvent(ctx, models.MeetingEvent{
+				Type: "meeting.participant_joined", EventTS: base + 3 + int64(i),
+				Meeting: meeting, ParticipantID: fmt.Sprintf("participant-%d", i),
+			})
+			// Bounded conflicts are retryable, never successful lost writes.
+			if errors.Is(err, repository.ErrConflict) {
+				_, err = repo.ApplyEvent(ctx, models.MeetingEvent{
+					Type: "meeting.participant_joined", EventTS: base + 3 + int64(i),
+					Meeting: meeting, ParticipantID: fmt.Sprintf("participant-%d", i),
+				})
+			}
+			require.NoError(t, err)
+		}()
+	}
+	wg.Wait()
+	result, err := repo.GetMeeting(ctx, meeting.ID)
+	require.NoError(t, err)
+	require.Equal(t, 11, result.ParticipantCount)
+}
+
+func TestDeleteDoesNotReplayOldContent(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	event := models.MeetingEvent{
+		Type: "meeting.created", EventTS: time.Now().Add(-time.Minute).UnixMilli(),
+		Meeting: models.Meeting{ID: "123", Topic: "Delete this topic"},
+	}
+	_, err := repo.ApplyEvent(ctx, event)
+	require.NoError(t, err)
+	require.NoError(t, repo.DeleteMeeting(ctx, event.Meeting.ID))
+	_, err = repo.GetMeeting(ctx, event.Meeting.ID)
+	require.ErrorIs(t, err, repository.ErrNotFound)
+	updated, err := repo.ApplyEvent(ctx, event)
+	require.NoError(t, err)
+	require.Nil(t, updated)
+	meetings, err := repo.ListAllMeetings(ctx)
+	require.NoError(t, err)
+	require.Empty(t, meetings)
+}
+
+func TestDelayedMetadataAndParticipantFirstOccurrence(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute).UnixMilli()
+	apply := func(kind string, offset int64, uuid, topic, operator string) *models.Meeting {
+		t.Helper()
+		updated, err := repo.ApplyEvent(ctx, models.MeetingEvent{
+			Type: kind, EventTS: base + offset, ParticipantID: "guest",
+			Meeting: models.Meeting{
+				ID: "123", UUID: uuid, Topic: topic, OperatorEmail: operator,
+				StartTime: time.UnixMilli(base + offset),
+			},
+		})
+		require.NoError(t, err)
+		return updated
+	}
+	apply("meeting.started", 20, "first", "Runtime topic", "")
+	apply("meeting.participant_joined", 30, "first", "", "")
+	apply("meeting.updated", 25, "", "Updated topic", "editor@example.test")
+	apply("meeting.created", 10, "", "Older topic", "creator@example.test")
+	meeting, err := repo.GetMeeting(ctx, "123")
+	require.NoError(t, err)
+	require.Equal(t, "Updated topic", meeting.Topic)
+	require.Equal(t, "creator@example.test", meeting.CreatorEmail)
+	require.Equal(t, "editor@example.test", meeting.OperatorEmail)
+	apply("meeting.participant_joined", 100, "second", "", "")
+	require.Nil(t, apply("meeting.participant_joined", 40, "first", "", ""))
+	apply("meeting.started", 90, "second", "", "")
+	meeting, err = repo.GetMeeting(ctx, "123")
+	require.NoError(t, err)
+	require.Equal(t, "second", meeting.UUID)
+	require.Equal(t, 1, meeting.ParticipantCount)
+	require.Equal(t, time.UnixMilli(base+90), meeting.StartTime)
+	require.Nil(t, apply("meeting.started", 110, "second", "", ""))
 }

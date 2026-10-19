@@ -50,10 +50,14 @@
                         </div>
                         <div class="detail-row">
                             <span class="detail-label">Host:</span>
-                            <span class="detail-value">{{if .Meeting.Host}}{{.Meeting.Host}}{{else}}-{{end}}</span>
+                            <span class="detail-value">{{if .HostID}}{{.HostID}}{{else}}-{{end}}</span>
                         </div>
                         <div class="detail-row">
-                            <span class="detail-label">Created/Managed by:</span>
+                            <span class="detail-label">Created by:</span>
+                            <span class="detail-value">{{if .Meeting.CreatorEmail}}{{.Meeting.CreatorEmail}}{{else}}-{{end}}</span>
+                        </div>
+                        <div class="detail-row">
+                            <span class="detail-label">Last managed by:</span>
                             <span class="detail-value">{{if .Meeting.OperatorEmail}}{{.Meeting.OperatorEmail}}{{else}}-{{end}}</span>
                         </div>
                     </div>
@@ -73,7 +77,7 @@
                             <span class="detail-value">
                                 {{if and (not .Meeting.StartTime.IsZero) (not .Meeting.EndTime.IsZero)}}
                                     {{printf "%.0f minutes" (.Meeting.EndTime.Sub .Meeting.StartTime).Minutes}}
-                                {{else if and (not .Meeting.StartTime.IsZero) (eq .Meeting.Status 1)}}
+                                {{else if and (not .Meeting.StartTime.IsZero) (isActive .Meeting.Status)}}
                                     {{printf "%.0f minutes (ongoing)" (now.Sub .Meeting.StartTime).Minutes}}
                                 {{else}}
                                     -
@@ -83,12 +87,12 @@
                     </div>
                 </div>
 
-                {{if eq .Meeting.Status 1}}
+                {{if isActive .Meeting.Status}}
                 <div class="detail-section">
                     <h3>Current Participants</h3>
                     <div class="participant-badge">{{.ParticipantCount}} participants</div>
                     <p class="privacy-note">
-                        Participant details are not stored for privacy reasons. Only the count is tracked.
+                        Only participant identifiers are stored to calculate the count, not names or email addresses.
                     </p>
                 </div>
                 {{end}}
