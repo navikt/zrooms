@@ -3,12 +3,13 @@ package zoom_test
 import (
 	"testing"
 
+	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/zoom"
 )
 
 func TestNewAPIManager(t *testing.T) {
 	// Test that we can create an API manager
-	manager := zoom.NewAPIManager()
+	manager := zoom.NewAPIManager(config.ZoomConfig{}, zoom.NewTokenStore(zoom.NewMemoryTokenBackend(), "test-secret"))
 	if manager == nil {
 		t.Error("Expected non-nil API manager")
 	}

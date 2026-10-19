@@ -67,6 +67,7 @@ func TestMeetingStatusData(t *testing.T) {
 		})
 		require.NoError(t, err)
 	}
+
 	active, err := svc.GetMeetingStatusData(ctx, false)
 	require.NoError(t, err)
 	require.Len(t, active, 2)
@@ -74,4 +75,39 @@ func TestMeetingStatusData(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, all, 3)
 	require.Equal(t, "ended", all[0].Status)
+}
+
+func TestDeauthorizationNotifiesAfterDeletion(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	svc := service.NewMeetingService(repo)
+	at := time.Now()
+	_, err := repo.ApplyEvent(ctx, models.MeetingEvent{
+		Type: "meeting.created", EventTS: at.Add(-time.Minute).UnixMilli(),
+		Meeting: models.Meeting{ID: "123", Host: models.Participant{ID: "owner"}},
+	})
+	require.NoError(t, err)
+	calls := 0
+	svc.RegisterUpdateCallback(func(meeting *models.Meeting) {
+		_, err := repo.GetMeeting(ctx, meeting.ID)
+		require.ErrorIs(t, err, repository.ErrNotFound)
+		calls++
+	})
+	require.NoError(t, svc.DeauthorizeUser(ctx, "owner", at))
+	require.NoError(t, svc.DeauthorizeUser(ctx, "owner", at))
+	require.Equal(t, 1, calls)
+}
+
+type partialDeauthorizationRepository struct{ repository.Repository }
+
+func (partialDeauthorizationRepository) DeleteMeetingsByHost(context.Context, string, time.Time) ([]string, error) {
+	return []string{"persisted-deletion"}, errors.New("storage unavailable")
+}
+
+func TestDeauthorizationNotifiesPartialDeletionBeforeRetry(t *testing.T) {
+	svc := service.NewMeetingService(partialDeauthorizationRepository{})
+	var notified []string
+	svc.RegisterUpdateCallback(func(meeting *models.Meeting) { notified = append(notified, meeting.ID) })
+	require.ErrorContains(t, svc.DeauthorizeUser(context.Background(), "owner", time.Now()), "storage unavailable")
+	require.Equal(t, []string{"persisted-deletion"}, notified)
 }

@@ -92,7 +92,10 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 		Meetings:    meetings,
 		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear: time.Now().Year(),
-		OAuthURL:    zoomConfig.GetOAuthURL(),
+		OAuthURL:    "",
+	}
+	if zoomConfig.IsZoomConfigValid() {
+		viewModel.OAuthURL = "/oauth/start"
 	}
 
 	// Render template

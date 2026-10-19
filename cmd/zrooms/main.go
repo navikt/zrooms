@@ -18,6 +18,7 @@ import (
 	"github.com/navikt/zrooms/internal/repository/memory"
 	"github.com/navikt/zrooms/internal/service"
 	"github.com/navikt/zrooms/internal/web"
+	"github.com/navikt/zrooms/internal/zoom"
 )
 
 func main() {
@@ -26,6 +27,7 @@ func main() {
 		log.Fatal(err)
 	}
 	var repo repository.Repository
+	var tokenBackend zoom.TokenBackend
 	if bucket := os.Getenv("GCS_BUCKET"); bucket != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		client, err := storage.NewClient(ctx, storage.WithJSONReads())
@@ -35,6 +37,7 @@ func main() {
 		}
 		defer client.Close()
 		repo = repository.NewStore(gcs.NewBackend(client, bucket))
+		tokenBackend = zoom.NewGCSTokenBackend(client, bucket)
 		err = repo.Check(ctx)
 		cancel()
 		if err != nil {
@@ -44,7 +47,10 @@ func main() {
 	} else {
 		log.Print("Using volatile in-memory storage for local development")
 		repo = memory.NewRepository()
+		tokenBackend = zoom.NewMemoryTokenBackend()
 	}
+	zoomConfig := config.GetZoomConfig()
+	oauth := zoom.NewAPIManager(zoomConfig, zoom.NewTokenStore(tokenBackend, zoomConfig.ClientSecret))
 
 	// Initialize the service layer
 	meetingService := service.NewMeetingService(repo)
@@ -56,7 +62,7 @@ func main() {
 	}
 
 	// Set up admin routes
-	adminHandler, err := web.NewAdminHandler(meetingService, repo, "./internal/web/templates")
+	adminHandler, err := web.NewAdminHandler(meetingService, repo, "./internal/web/templates", oauth)
 	if err != nil {
 		log.Fatalf("Failed to initialize admin handler: %v", err)
 	}
@@ -65,7 +71,7 @@ func main() {
 	meetingService.RegisterUpdateCallback(webHandler.NotifyMeetingUpdate)
 
 	// Set up API routes with repository and meeting service
-	mux := api.SetupRoutes(repo, meetingService)
+	mux := api.SetupRoutes(repo, meetingService, oauth)
 
 	// Set up web UI routes
 	webHandler.SetupRoutes(mux)

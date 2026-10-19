@@ -48,6 +48,17 @@ func (s *MeetingService) DeleteMeeting(ctx context.Context, id string) error {
 	return nil
 }
 
+// DeauthorizeUser notifies clients of persisted deletions, including partial cleanup.
+func (s *MeetingService) DeauthorizeUser(ctx context.Context, userID string, at time.Time) error {
+	deleted, err := s.repo.DeleteMeetingsByHost(ctx, userID, at)
+	for _, id := range deleted {
+		for _, callback := range s.updateCallbacks {
+			callback(&models.Meeting{ID: id})
+		}
+	}
+	return err
+}
+
 type MeetingStatusData struct {
 	Meeting          *models.Meeting
 	Status           string

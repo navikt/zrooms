@@ -20,6 +20,7 @@ type Repository interface {
 	GetMeeting(context.Context, string) (*models.Meeting, error)
 	ListAllMeetings(context.Context) ([]*models.Meeting, error)
 	DeleteMeeting(context.Context, string) error
+	DeleteMeetingsByHost(context.Context, string, time.Time) ([]string, error)
 	Check(context.Context) error
 }
 

@@ -9,6 +9,8 @@ Zrooms is a Go application that tracks and displays the status of Zoom meetings.
 - **Participant Tracking**: Shows how many participants are in each meeting
 - **Auto-refreshing Dashboard**: Automatically updates to show the latest meeting status (fallback for browsers without SSE support)
 - **Zoom Webhook Integration**: Processes Zoom meeting events (creation, start, end, participant changes)
+- **Admin Ownership Details**: Shows the Zoom host ID and resolves the owner's email separately from creator/editor emails
+- **App Deauthorization**: Removes stored meetings belonging to a user who uninstalls the Zoom app
 - **Health Check Endpoints**: API endpoints for monitoring application health
 - **Graceful Degradation**: Works well across different browsers with appropriate fallbacks
 
@@ -80,6 +82,36 @@ On NAIS, GCS uses the application's workload identity through Application Defaul
 
 Access the web dashboard at `http://localhost:8080/` to view room and meeting status. The interface updates automatically when meeting statuses change.
 
+### Admin meeting owners
+
+The authenticated admin dashboard, meeting list, and detail page show the meeting owner using Zoom's `host_id`. Creator and last-editor emails remain separate because someone can schedule or edit a meeting on another host's behalf.
+
+Use the existing Zoom OAuth app and the existing `ZOOM_CLIENT_ID`, `ZOOM_CLIENT_SECRET`, and `ZOOM_REDIRECT_URI`. No separate Server-to-Server app or `ZOOM_API_*` variables are required. Enable the `user:read:user` scope (classic equivalent: `user:read`) so the application can identify the authorizing user through `/users/me`. The optional admin **Raw** action also needs `meeting:read:meeting` (classic equivalent: `meeting:read`). Keep the existing meeting webhook subscriptions and their required permissions. Users must authorize again after scopes change.
+
+Start installation using **Add Your Meetings** on the dashboard, which opens `/oauth/start`. This sets a signed, ten-minute, HttpOnly, SameSite=Lax state cookie and redirects to Zoom. `/oauth/redirect` requires that cookie and matching state, exchanges the code using the configured redirect URI, and identifies the token owner before persisting anything. Both paths are explicitly excluded from NAIS automatic Entra login; admin authentication is unchanged. Unsolicited or expired callbacks, including direct Marketplace callbacks without state, display a link to restart through `/oauth/start`. Production redirect URIs must use HTTPS; HTTP is allowed only on localhost for development. Existing installations must use this flow once because older versions did not retain OAuth tokens.
+
+Emails are fetched only while serving authenticated admin pages, once per distinct host in that response, with a five-second total lookup deadline. Each lookup uses that host's own authorization and verifies the returned user ID; an account administrator's installation does not automatically supply authorizations for other hosts. Emails are not persisted, logged, or included in the public dashboard. If authorization, scopes, or Zoom are unavailable, the page shows a notice and keeps the host ID visible.
+
+### OAuth token storage and refresh
+
+Access and rotating refresh tokens are encrypted with AES-256-GCM using a purpose-specific key derived from the existing `ZOOM_CLIENT_SECRET`; the Zoom user ID is authenticated as associated data. The private GCS bucket holds one encrypted record per hashed user ID under `oauth/v1/`, separate from `meetings/v1/`. Tokens are never included in meeting objects, pages, or logs. Local development uses an encrypted in-memory store and loses authorizations on restart.
+
+The existing bucket's seven-day lifecycle also applies to OAuth records, measured from their last write. Successful refresh writes a new record. If no lookup triggers refresh for seven days, the owner must authorize again. A missing authorization never falls back to another user's tokens. Keep soft delete, object versioning, and retention policies disabled as described below, so uninstall cleanup does not leave recoverable token copies.
+
+Generation preconditions serialize token rotation across concurrent requests or overlapping pods. A refresh claim is persisted before contacting Zoom, and the rotated tokens must replace that exact generation. Uninstall or a newer installation therefore cannot be overwritten by an older in-flight refresh. A failed or interrupted refresh is not blindly retried with a potentially consumed refresh token: other callers wait briefly for completion, then require reauthorization. Monitor OAuth errors and ask affected owners to use **Add Your Meetings** again.
+
+Rotating `ZOOM_CLIENT_SECRET` also changes the encryption key and invalidates in-progress state cookies. Coordinate rotation with removal of the old `oauth/v1/` objects by a bucket administrator, then have users authorize again. Do not delete meeting objects. Keep the old key available for recovery until this procedure is complete; the application deliberately does not overwrite undecryptable records or treat corruption as missing credentials.
+
+### Zoom app deauthorization
+
+Set the existing Zoom app's **Deauthorization Notification Endpoint URL** to `https://<application-host>/webhook/deauthorization`. Keep `ZOOM_CLIENT_ID` and `ZOOM_WEBHOOK_SECRET_TOKEN` set to that app's values. The NAIS manifest exempts this callback from browser login redirects; the application verifies Zoom signatures instead.
+
+The endpoint accepts signed `app_deauthorized` POST requests and signed `endpoint.url_validation` challenges using the same timestamp and HMAC verification as `/webhook`. A payload must contain `account_id`, `user_id`, the matching `client_id`, and `deauthorization_time`; `event_ts` is not required. Unsigned requests are rejected, including legacy requests that contain only a payload-level `signature`.
+
+Cleanup first replaces the user's OAuth credentials with a minimal revocation marker, preventing an older in-flight authorization or refresh from restoring them. It then matches the notification's `user_id` to stored meeting host IDs, not creator/editor emails or participant identifiers, removes meeting content, and notifies connected dashboards after persisted deletions. Duplicate notifications are safe, concurrent changes are rechecked using generation preconditions, and storage failures return `503` so Zoom can retry partial cleanup.
+
+Deletion markers prevent events at or before the deauthorization time from restoring the deleted meetings for seven days. A delayed uninstall notification does not delete meeting state with newer event timestamps. This cleanup covers currently stored meetings with a known host ID; it is not an account-wide revocation registry. Previously unseen meeting IDs, events newer than the uninstall time, and meetings without a known host ID are not blocked. Configure Zoom to stop delivering events after uninstall, and monitor notification failures.
+
 ### Demo Mode
 
 To populate the application with sample data for demonstration purposes:
@@ -133,7 +165,7 @@ An event is acknowledged only after persistence completes. Storage failures retu
 
 The existing workflow provisions `nav-appsec-zrooms-prod-meetings` through `.nais/nais.yml` and deploys one application replica. The bucket name must be globally available; keep the manifest name and `GCS_BUCKET` value identical. Bucket provisioning and IAM propagation must complete before startup succeeds. Configure the bucket policies manually as described above; startup does not enforce them. No Redis instance or credentials are needed.
 
-Outbound policy remains unchanged. NAIS allows `private.googleapis.com` by default; bucket access relies on the platform's private Google API routing. Startup/readiness verify actual connectivity. This has not been checked against the live cluster's DNS or network policy.
+Outbound policy permits `zoom.us` for token requests and `api.zoom.us` for admin user/meeting lookups. NAIS allows `private.googleapis.com` by default; bucket access relies on the platform's private Google API routing. Startup/readiness verify bucket connectivity, not Zoom API credentials or permissions. This has not been checked against the live cluster's DNS or network policy.
 
 The previous deployment used in-memory state, so there is no automatic data migration: currently running meetings may need subsequent events or manual reconciliation after cutover. Rolling back to the previous binary also returns to volatile storage and does not read the bucket; the bucket data itself is not removed. Verify readiness, signed webhook persistence across a pod replacement, admin access, and delivery to two dashboard clients after deployment. A local production-image smoke test with a fake GCS endpoint passed within the existing 32 MiB limit; this is not a production capacity measurement.
 

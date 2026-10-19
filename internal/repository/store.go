@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/navikt/zrooms/internal/models"
@@ -124,6 +125,66 @@ func (s *Store) DeleteMeeting(ctx context.Context, id string) error {
 		return err
 	}
 	return fmt.Errorf("deleting meeting: %w", ErrConflict)
+}
+
+// DeleteMeetingsByHost returns persisted deletions even when cleanup fails partway.
+func (s *Store) DeleteMeetingsByHost(ctx context.Context, hostID string, at time.Time) ([]string, error) {
+	if strings.TrimSpace(hostID) == "" || len(hostID) > 256 || at.UnixMilli() <= 0 {
+		return nil, fmt.Errorf("host ID and deauthorization time required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	states, err := s.backend.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var deleted []string
+	for _, state := range states {
+		if state.Meeting.Host.ID != hostID || state.DeletedAt != 0 || s.expired(state) {
+			continue
+		}
+		changed, err := s.deleteHostMeeting(ctx, state.Meeting.ID, hostID, at.UnixMilli())
+		if changed {
+			deleted = append(deleted, state.Meeting.ID)
+		}
+		if err != nil {
+			return deleted, err
+		}
+	}
+	return deleted, nil
+}
+
+func (s *Store) deleteHostMeeting(ctx context.Context, id, hostID string, cutoff int64) (bool, error) {
+	for attempt := 0; attempt < 5; attempt++ {
+		state, version, err := s.backend.Read(ctx, id)
+		if errors.Is(err, ErrNotFound) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		if s.expired(state) || state.DeletedAt != 0 || state.Meeting.Host.ID != hostID {
+			return false, nil
+		}
+		latest := max(state.MetadataTS, state.LifecycleTS, state.OperatorTS, state.OccurrenceTS)
+		for _, participant := range state.Participants {
+			latest = max(latest, participant.EventTS)
+		}
+		// A delayed uninstall callback must not delete state accepted after reinstallation.
+		if latest > cutoff {
+			return false, nil
+		}
+		marker := &State{
+			SchemaVersion: 1, Meeting: models.Meeting{ID: id},
+			DeletedAt: cutoff, UpdatedAt: s.now().UTC(),
+		}
+		err = s.backend.Write(ctx, id, marker, version)
+		if errors.Is(err, ErrConflict) {
+			continue
+		}
+		return err == nil, err
+	}
+	return false, fmt.Errorf("deleting host meeting: %w", ErrConflict)
 }
 
 func (s *State) view() *models.Meeting {

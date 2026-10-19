@@ -27,12 +27,14 @@
             </div>
             
             {{if .Meetings}}
+            {{if .OwnerLookupFailed}}<p role="status">Some owner emails could not be loaded from Zoom. Host IDs are shown instead. Owners may need to authorize again using Add Your Meetings.</p>{{end}}
             <table class="meetings-table">
                                 <thead>
                     <tr>
                         <th>Meeting ID</th>
                         <th>Topic</th>
                         <th>Status</th>
+                        <th>Owner</th>
                         <th>Created/Managed by</th>
                         <th>Participants</th>
                         <th>Start Time</th>
@@ -47,6 +49,7 @@
                         <td><span class="meeting-id">{{.Meeting.ID}}</span></td>
                         <td>{{.Meeting.Topic}}</td>
                         <td><span class="{{statusClass .Meeting.Status}}">{{statusText .Meeting.Status}}</span></td>
+                        <td>{{if .Meeting.Host.Email}}{{.Meeting.Host.Email}}<br>{{end}}{{if .Meeting.Host.ID}}<code>{{.Meeting.Host.ID}}</code>{{else}}Unknown{{end}}</td>
                         <td>{{if .Meeting.CreatorEmail}}{{.Meeting.CreatorEmail}}{{else if .Meeting.OperatorEmail}}{{.Meeting.OperatorEmail}}{{else}}-{{end}}</td>
                         <td>
                             {{if isActive .Meeting.Status}}

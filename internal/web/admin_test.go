@@ -32,8 +32,17 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 		require.NoError(t, err)
 	}
 	svc := service.NewMeetingService(repo)
-	admin, err := NewAdminHandler(svc, repo, "./templates")
+	admin, err := NewAdminHandler(svc, repo, "./templates", nil)
 	require.NoError(t, err)
+	ownerCalls := 0
+	admin.newOwnerClient = func(_ context.Context, hostID string) (ownerEmailClient, error) {
+		require.Equal(t, "host-123", hostID)
+		return ownerEmailFunc(func(_ context.Context, id string) (string, error) {
+			require.Equal(t, "host-123", id)
+			ownerCalls++
+			return "owner@example.test", nil
+		}), nil
+	}
 	for _, path := range []string{"/admin", "/admin/meetings", "/admin/meetings/123"} {
 		t.Run(path, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -47,6 +56,8 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 			}
 			require.Equal(t, http.StatusOK, recorder.Code)
 			require.Contains(t, recorder.Body.String(), "creator@example.test")
+			require.Contains(t, recorder.Body.String(), "owner@example.test")
+			require.Contains(t, recorder.Body.String(), "host-123")
 			require.Contains(t, recorder.Body.String(), "Active")
 			require.NotContains(t, recorder.Body.String(), "<script>not HTML</script>")
 			require.Contains(t, recorder.Body.String(), "&lt;script&gt;")
@@ -56,6 +67,10 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 			}
 		})
 	}
+	require.Equal(t, 3, ownerCalls)
+	persisted, err := repo.GetMeeting(ctx, "123")
+	require.NoError(t, err)
+	require.Empty(t, persisted.Host.Email)
 	public, err := NewHandler(svc, "./templates")
 	require.NoError(t, err)
 	defer public.Shutdown()
@@ -64,7 +79,62 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	require.NotContains(t, recorder.Body.String(), "creator@example.test")
 	require.NotContains(t, recorder.Body.String(), "host-123")
+	require.NotContains(t, recorder.Body.String(), "owner@example.test")
 	require.Contains(t, recorder.Body.String(), "every 60s")
+}
+
+type ownerEmailFunc func(context.Context, string) (string, error)
+
+func (f ownerEmailFunc) GetUserEmail(ctx context.Context, id string) (string, error) {
+	return f(ctx, id)
+}
+
+func TestOwnerLookupsDeduplicateAndReportFailure(t *testing.T) {
+	calls := 0
+	handler := &AdminHandler{
+		newOwnerClient: func(context.Context, string) (ownerEmailClient, error) {
+			return ownerEmailFunc(func(ctx context.Context, id string) (string, error) {
+				_, ok := ctx.Deadline()
+				require.True(t, ok)
+				calls++
+				if id == "unavailable" {
+					return "", errors.New("lookup unavailable")
+				}
+				return "<owner>@example.test", nil
+			}), nil
+		},
+	}
+	meetings := []*models.Meeting{
+		{Host: models.Participant{ID: "host"}},
+		{Host: models.Participant{ID: "host"}},
+		{Host: models.Participant{ID: "unavailable"}},
+		{},
+	}
+	require.True(t, handler.resolveOwners(context.Background(), meetings))
+	require.Equal(t, 2, calls)
+	require.Equal(t, "<owner>@example.test", meetings[0].Host.Email)
+	require.Equal(t, meetings[0].Host.Email, meetings[1].Host.Email)
+	require.Empty(t, meetings[2].Host.Email)
+}
+
+func TestAdminReportsOwnerLookupUnavailable(t *testing.T) {
+	repo := memory.NewRepository()
+	_, err := repo.ApplyEvent(context.Background(), models.MeetingEvent{
+		Type: "meeting.created", EventTS: time.Now().UnixMilli(),
+		Meeting: models.Meeting{ID: "123", Host: models.Participant{ID: "owner-id"}},
+	})
+	require.NoError(t, err)
+	handler, err := NewAdminHandler(service.NewMeetingService(repo), repo, "./templates", nil)
+	require.NoError(t, err)
+	handler.newOwnerClient = func(context.Context, string) (ownerEmailClient, error) {
+		return nil, errors.New("credentials not configured")
+	}
+	recorder := httptest.NewRecorder()
+	handler.handleAdminDashboard(recorder, httptest.NewRequest(http.MethodGet, "/admin", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "owner emails could not be loaded")
+	require.Contains(t, recorder.Body.String(), "owner-id")
+	require.NotContains(t, recorder.Body.String(), "credentials not configured")
 }
 
 type failedReadRepository struct{ repository.Repository }

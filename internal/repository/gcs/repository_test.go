@@ -26,6 +26,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
+	"github.com/navikt/zrooms/internal/zoom"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
 )
@@ -101,6 +102,9 @@ func (b *fakeBucket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasSuffix(r.URL.Path, "/o") {
 		items := make([]map[string]string, 0, len(b.objects))
 		for name, object := range b.objects {
+			if !strings.HasPrefix(name, r.URL.Query().Get("prefix")) {
+				continue
+			}
 			items = append(items, map[string]string{
 				"name": name, "generation": strconv.FormatInt(object.generation, 10),
 			})
@@ -185,6 +189,26 @@ func TestGCSRoundTripAndConcurrentGenerations(t *testing.T) {
 	require.NotContains(t, deleted, "creator@example.test")
 	require.NotContains(t, deleted, "host-123")
 	require.NotContains(t, deleted, "guest")
+}
+
+func TestOAuthObjectsPersistSeparatelyWithGenerationPreconditions(t *testing.T) {
+	meetings, _, client := testBackend(t)
+	ctx := context.Background()
+	tokens := zoom.NewGCSTokenBackend(client, "test-bucket")
+	_, _, err := tokens.Read(ctx, "owner")
+	require.ErrorIs(t, err, repository.ErrNotFound)
+	require.NoError(t, tokens.Write(ctx, "owner", []byte("opaque-encrypted-record"), 0))
+	restarted := zoom.NewGCSTokenBackend(client, "test-bucket")
+	data, generation, err := restarted.Read(ctx, "owner")
+	require.NoError(t, err)
+	require.Equal(t, []byte("opaque-encrypted-record"), data)
+	require.NoError(t, restarted.Write(ctx, "owner", []byte("updated-record"), generation))
+	require.ErrorIs(t, tokens.Write(ctx, "owner", []byte("stale-record"), generation), repository.ErrConflict)
+	require.ErrorIs(t, tokens.Write(ctx, "owner", []byte("already-exists"), 0), repository.ErrConflict)
+	all, err := repository.NewStore(meetings).ListAllMeetings(ctx)
+	require.NoError(t, err)
+	require.Empty(t, all)
+	require.NoError(t, meetings.Check(ctx))
 }
 
 func TestGCSExpiryAndFailures(t *testing.T) {

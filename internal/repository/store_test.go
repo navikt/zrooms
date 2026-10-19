@@ -79,6 +79,7 @@ func TestConflictsReloadBeforeRetry(t *testing.T) {
 			backend.state.MetadataTS = now.UnixMilli() + 2
 			return ErrConflict
 		}
+
 		backend.state = state
 		return nil
 	}
@@ -95,4 +96,31 @@ func TestConflictsReloadBeforeRetry(t *testing.T) {
 		Type: "meeting.ended", EventTS: now.UnixMilli() + 10, Meeting: models.Meeting{ID: "123", UUID: "instance"},
 	})
 	require.ErrorIs(t, err, ErrConflict)
+}
+
+func TestDeauthorizationRechecksOwnershipOnConflict(t *testing.T) {
+	now := time.Now().UTC()
+	backend := &testBackend{state: &State{
+		SchemaVersion: 1, Meeting: models.Meeting{ID: "123", Host: models.Participant{ID: "owner"}},
+		MetadataTS: now.Add(-time.Minute).UnixMilli(), UpdatedAt: now,
+	}}
+	writes := 0
+	backend.write = func(*State, int64) error {
+		writes++
+		backend.state.Meeting.Host.ID = "new-owner"
+		return ErrConflict
+	}
+	deleted, err := NewStore(backend).DeleteMeetingsByHost(context.Background(), "owner", now)
+	require.NoError(t, err)
+	require.Empty(t, deleted)
+	require.Equal(t, 1, writes)
+	require.Equal(t, "new-owner", backend.state.Meeting.Host.ID)
+
+	backend.state.Meeting.Host.ID = "owner"
+	backend.write = func(*State, int64) error { return ErrConflict }
+	_, err = NewStore(backend).DeleteMeetingsByHost(context.Background(), "owner", now)
+	require.ErrorIs(t, err, ErrConflict)
+	backend.err = errors.New("storage unavailable")
+	_, err = NewStore(backend).DeleteMeetingsByHost(context.Background(), "owner", now)
+	require.ErrorIs(t, err, backend.err)
 }

@@ -20,6 +20,7 @@ spec:
     outbound:
       external:
         - host: zoom.us
+        - host: api.zoom.us
   azure:
     application:
       enabled: true
@@ -32,7 +33,10 @@ spec:
       autoLogin: true
       autoLoginIgnorePaths:
         - /oauth
+        - /oauth/start
+        - /oauth/redirect
         - /webhook
+        - /webhook/deauthorization
   replicas:
     min: 1
     max: 1

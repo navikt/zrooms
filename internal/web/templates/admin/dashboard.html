@@ -21,6 +21,7 @@
     
     <main class="container">
         <h2>Dashboard Overview</h2>
+        {{if .OwnerLookupFailed}}<p role="status">Some owner emails could not be loaded from Zoom. Host IDs are shown instead. Owners may need to authorize again using Add Your Meetings.</p>{{end}}
         
         <div class="stats-grid">
             <div class="stat-card">
@@ -54,6 +55,7 @@
                         <th>Meeting ID</th>
                         <th>Topic</th>
                         <th>Status</th>
+                        <th>Owner</th>
                         <th>Created/Managed by</th>
                         <th>Start Time</th>
                         <th>End Time</th>
@@ -66,6 +68,7 @@
                         <td><code>{{.ID}}</code></td>
                         <td>{{.Topic}}</td>
                         <td><span class="{{statusClass .Status}}">{{statusText .Status}}</span></td>
+                        <td>{{if .Host.Email}}{{.Host.Email}}<br>{{end}}{{if .Host.ID}}<code>{{.Host.ID}}</code>{{else}}Unknown{{end}}</td>
                         <td>{{if .CreatorEmail}}{{.CreatorEmail}}{{else if .OperatorEmail}}{{.OperatorEmail}}{{else}}-{{end}}</td>
                         <td>{{formatDateTime .StartTime}}</td>
                         <td>{{formatDateTime .EndTime}}</td>

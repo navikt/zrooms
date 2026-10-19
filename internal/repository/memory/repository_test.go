@@ -126,6 +126,56 @@ func TestDeleteDoesNotReplayOldContent(t *testing.T) {
 	require.Empty(t, meetings)
 }
 
+func TestDeauthorizationDeletesOnlyOwnedMeetingsAndAllowsRetry(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	base := time.Now().Add(-time.Minute)
+	events := []models.MeetingEvent{
+		{Type: "meeting.created", EventTS: base.UnixMilli(), Meeting: models.Meeting{
+			ID: "owned", Host: models.Participant{ID: "owner"}, OperatorEmail: "delegate@example.test",
+		}},
+		{Type: "meeting.started", EventTS: base.UnixMilli(), Meeting: models.Meeting{
+			ID: "active", UUID: "occurrence", Host: models.Participant{ID: "owner"},
+		}},
+		{Type: "meeting.created", EventTS: base.UnixMilli(), Meeting: models.Meeting{
+			ID: "other", Host: models.Participant{ID: "other-owner"}, OperatorEmail: "owner@example.test",
+		}},
+		{Type: "meeting.created", EventTS: base.UnixMilli(), Meeting: models.Meeting{ID: "unknown"}},
+	}
+	for _, event := range events {
+		_, err := repo.ApplyEvent(ctx, event)
+		require.NoError(t, err)
+	}
+	cutoff := base.Add(10 * time.Second)
+	deleted, err := repo.DeleteMeetingsByHost(ctx, "owner", cutoff)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"owned", "active"}, deleted)
+	deleted, err = repo.DeleteMeetingsByHost(ctx, "owner", cutoff)
+	require.NoError(t, err)
+	require.Empty(t, deleted)
+	meetings, err := repo.ListAllMeetings(ctx)
+	require.NoError(t, err)
+	require.Len(t, meetings, 2)
+	for _, event := range events[:2] {
+		replayed, err := repo.ApplyEvent(ctx, event)
+		require.NoError(t, err)
+		require.Nil(t, replayed)
+		_, err = repo.GetMeeting(ctx, event.Meeting.ID)
+		require.ErrorIs(t, err, repository.ErrNotFound)
+	}
+	newEvent := events[0]
+	newEvent.EventTS = cutoff.Add(time.Second).UnixMilli()
+	_, err = repo.ApplyEvent(ctx, newEvent)
+	require.NoError(t, err)
+	deleted, err = repo.DeleteMeetingsByHost(ctx, "owner", cutoff)
+	require.NoError(t, err)
+	require.Empty(t, deleted)
+	_, err = repo.GetMeeting(ctx, "owned")
+	require.NoError(t, err)
+	_, err = repo.DeleteMeetingsByHost(ctx, "", cutoff)
+	require.Error(t, err)
+}
+
 func TestDelayedMetadataAndParticipantFirstOccurrence(t *testing.T) {
 	repo := memory.NewRepository()
 	ctx := context.Background()
