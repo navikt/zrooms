@@ -153,6 +153,12 @@ Cloud Storage enables seven-day soft delete by default, including for overwritte
 
 Disabling these settings does not erase previously soft-deleted or noncurrent generations. If the bucket has already held data, its administrator must assess those existing copies separately.
 
+### Occupancy statistics
+
+After a meeting update is persisted, accepted presence changes are appended as anonymous `{ts, delta}` entries to `stats/v1/<sha256(meeting ID)>/<YYYY-MM>.json` (months in Europe/Oslo). Only the meeting ID, topic, timestamps and participant count changes are stored; no participant identifiers. Recording is best-effort: a failed statistics write is logged and the webhook is still acknowledged. Admin deletion, deauthorization, state expiry and a new occurrence without `meeting.ended` close remaining presence at the last known activity.
+
+Statistics share the bucket's seven-day lifecycle. Every six hours the application rewrites statistics objects older than two days, so they survive as long as the application has not been down for more than about five days. Months older than twelve months before the current one are no longer refreshed and expire through the lifecycle rule. `/admin/stats?month=YYYY-MM` shows per day active time, participant time, peak count, sessions and a 30-minute timeline. The public status page shows the last seven days per room (topic, timeline, active time and peak only; no meeting IDs or sessions) and refreshes on meeting updates. A session without a leave or end event is shown as ongoing until one arrives.
+
 ### Webhook delivery and operations
 
 Supported events are `meeting.created`, `meeting.updated`, `meeting.started`, `meeting.ended`, `meeting.participant_joined`, and `meeting.participant_left`. Requests are size-limited before signature verification, require a signature timestamp within five minutes, and use the event timestamp for ordering. The header timestamp is distinct from `event_ts`, so delayed retries can still carry an older event.

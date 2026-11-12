@@ -26,6 +26,7 @@ import (
 	"cloud.google.com/go/storage"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
+	"github.com/navikt/zrooms/internal/stats"
 	"github.com/navikt/zrooms/internal/zoom"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/option"
@@ -34,6 +35,7 @@ import (
 type storedObject struct {
 	data       []byte
 	generation int64
+	created    time.Time
 }
 
 type fakeBucket struct {
@@ -90,7 +92,7 @@ func (b *fakeBucket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b.generation++
-		b.objects[metadata.Name] = storedObject{data: data, generation: b.generation}
+		b.objects[metadata.Name] = storedObject{data: data, generation: b.generation, created: time.Now()}
 		var checksum [4]byte
 		binary.BigEndian.PutUint32(checksum[:], crc32.Checksum(data, crc32.MakeTable(crc32.Castagnoli)))
 		_ = json.NewEncoder(w).Encode(map[string]string{
@@ -107,6 +109,7 @@ func (b *fakeBucket) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			items = append(items, map[string]string{
 				"name": name, "generation": strconv.FormatInt(object.generation, 10),
+				"timeCreated": object.created.UTC().Format(time.RFC3339Nano),
 			})
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"items": items})
@@ -322,4 +325,49 @@ func TestProductionImagePersistence(t *testing.T) {
 	require.NoError(t, response.Body.Close())
 	require.Contains(t, string(page), "Survives restart")
 	t.Log("Container memory:", docker("stats", "--no-stream", "--format", "{{.MemUsage}}", container))
+}
+
+func TestStatisticsSurviveRestartAndAreRefreshedBeforeLifecycleExpiry(t *testing.T) {
+	meetings, bucket, client := testBackend(t)
+	ctx := context.Background()
+	oslo, err := time.LoadLocation("Europe/Oslo")
+	require.NoError(t, err)
+	store := repository.NewStore(meetings).WithOccupancy(stats.NewRecorder(stats.NewGCSBackend(client, "test-bucket"), oslo))
+	base := time.Now().Add(-time.Hour).UnixMilli()
+	for i, kind := range []string{"meeting.started", "meeting.participant_joined", "meeting.participant_left"} {
+		_, err := store.ApplyEvent(ctx, models.MeetingEvent{
+			Type: kind, EventTS: base + int64(i)*int64(10*time.Minute/time.Millisecond), ParticipantID: "guest",
+			Meeting: models.Meeting{ID: "123", UUID: "instance", Topic: "Room"},
+		})
+		require.NoError(t, err)
+	}
+	backend := stats.NewGCSBackend(client, "test-bucket")
+	rooms, err := stats.NewRecorder(backend, oslo).MonthReport(ctx, time.UnixMilli(base))
+	require.NoError(t, err)
+	require.Len(t, rooms, 1)
+	require.Equal(t, "Room", rooms[0].Topic)
+	require.Equal(t, 10*time.Minute, rooms[0].Active)
+
+	bucket.mu.Lock()
+	var current, expired string
+	for name, object := range bucket.objects {
+		if strings.HasPrefix(name, "stats/v1/") {
+			current = name
+			object.created = time.Now().Add(-3 * 24 * time.Hour)
+			bucket.objects[name] = object
+			require.NotContains(t, string(object.data), "guest")
+		}
+	}
+	expired = strings.TrimSuffix(current, "/"+time.UnixMilli(base).In(oslo).Format(stats.MonthLayout)+".json") + "/2000-01.json"
+	bucket.generation++
+	bucket.objects[expired] = storedObject{data: bucket.objects[current].data, generation: bucket.generation, created: time.Now().Add(-3 * 24 * time.Hour)}
+	before := bucket.objects[current].generation
+	bucket.mu.Unlock()
+
+	require.NoError(t, backend.Refresh(ctx, "2001-01", time.Now().Add(-2*24*time.Hour)))
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+	require.Greater(t, bucket.objects[current].generation, before)
+	require.WithinDuration(t, time.Now(), bucket.objects[current].created, time.Minute)
+	require.True(t, bucket.objects[expired].created.Before(time.Now().Add(-2*24*time.Hour)))
 }

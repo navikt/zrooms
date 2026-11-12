@@ -124,3 +124,50 @@ func TestDeauthorizationRechecksOwnershipOnConflict(t *testing.T) {
 	_, err = NewStore(backend).DeleteMeetingsByHost(context.Background(), "owner", now)
 	require.ErrorIs(t, err, backend.err)
 }
+
+type recordedOccupancy struct {
+	changes []models.OccupancyChange
+}
+
+func (r *recordedOccupancy) Record(_ context.Context, _, _ string, changes []models.OccupancyChange) error {
+	r.changes = append(r.changes, changes...)
+	return nil
+}
+
+func TestOccupancyChangesFollowAcceptedPresence(t *testing.T) {
+	now := time.Now().UTC()
+	base := now.Add(-time.Hour).UnixMilli()
+	backend := &testBackend{}
+	backend.write = func(state *State, _ int64) error {
+		backend.state = state
+		return nil
+	}
+	recorder := &recordedOccupancy{}
+	store := NewStore(backend).WithOccupancy(recorder)
+	store.now = func() time.Time { return now }
+	apply := func(kind string, ts int64, uuid, participant string) {
+		t.Helper()
+		_, err := store.ApplyEvent(context.Background(), models.MeetingEvent{
+			Type: kind, EventTS: ts, ParticipantID: participant,
+			Meeting: models.Meeting{ID: "123", UUID: uuid},
+		})
+		require.NoError(t, err)
+	}
+	apply("meeting.started", base, "first", "")
+	apply("meeting.participant_joined", base+20, "first", "b")
+	apply("meeting.participant_joined", base+10, "first", "a")
+	apply("meeting.participant_joined", base+10, "first", "a") // Retried delivery.
+	apply("meeting.participant_left", base+30, "first", "b")
+	// A newer occurrence without meeting.ended closes "a" at the last known activity.
+	apply("meeting.participant_joined", base+100, "second", "c")
+	apply("meeting.ended", base+200, "second", "")
+	require.Equal(t, []models.OccupancyChange{
+		{TS: base + 20, Delta: 1}, {TS: base + 10, Delta: 1}, {TS: base + 30, Delta: -1},
+		{TS: base + 30, Delta: -1}, {TS: base + 100, Delta: 1}, {TS: base + 200, Delta: -1},
+	}, recorder.changes)
+
+	recorder.changes = nil
+	apply("meeting.participant_joined", base+300, "third", "d")
+	require.NoError(t, store.DeleteMeeting(context.Background(), "123"))
+	require.Equal(t, []models.OccupancyChange{{TS: base + 300, Delta: 1}, {TS: base + 300, Delta: -1}}, recorder.changes)
+}

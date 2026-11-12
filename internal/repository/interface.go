@@ -24,6 +24,11 @@ type Repository interface {
 	Check(context.Context) error
 }
 
+// OccupancyRecorder receives presence changes after the meeting state is persisted.
+type OccupancyRecorder interface {
+	Record(ctx context.Context, meetingID, topic string, changes []models.OccupancyChange) error
+}
+
 // Backend uses version 0 for an absent object. Writes must compare and swap.
 type Backend interface {
 	Read(context.Context, string) (*State, int64, error)

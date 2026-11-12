@@ -13,6 +13,12 @@ var (
 	ErrUnsupportedEvent = errors.New("unsupported meeting event")
 )
 
+// OccupancyChange is an anonymous change in present participants at a point in time.
+type OccupancyChange struct {
+	TS    int64 `json:"ts"`
+	Delta int   `json:"delta"`
+}
+
 type MeetingEvent struct {
 	Type          string
 	EventTS       int64

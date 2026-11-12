@@ -11,6 +11,7 @@ import (
 	"github.com/navikt/zrooms/internal/config"
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/service"
+	"github.com/navikt/zrooms/internal/stats"
 )
 
 // Handler manages web UI requests
@@ -18,14 +19,18 @@ type Handler struct {
 	meetingService *service.MeetingService
 	templates      *template.Template
 	sseManager     *SSEManager
+	stats          *stats.Recorder
 }
 
+// recentDays is how many days of occupancy the public page shows
+const recentDays = 7
+
 // NewHandler creates a new web UI handler
-func NewHandler(meetingService *service.MeetingService, templatesDir string) (*Handler, error) {
+func NewHandler(meetingService *service.MeetingService, templatesDir string, recorder *stats.Recorder) (*Handler, error) {
 	// Parse templates
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"formatTime": formatTime,
-	}).ParseGlob(filepath.Join(templatesDir, "*.html"))
+	}).Funcs(statsFuncs).ParseGlob(filepath.Join(templatesDir, "*.html"))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse templates: %w", err)
@@ -38,6 +43,7 @@ func NewHandler(meetingService *service.MeetingService, templatesDir string) (*H
 		meetingService: meetingService,
 		templates:      tmpl,
 		sseManager:     sseManager,
+		stats:          recorder,
 	}, nil
 }
 
@@ -63,6 +69,7 @@ func (h *Handler) SetupRoutes(mux *http.ServeMux) {
 
 	// Add HTMX partial endpoints
 	mux.HandleFunc("/partial/meetings", h.HandlePartialMeetingList)
+	mux.HandleFunc("/partial/stats", h.HandlePartialStats)
 }
 
 // handleIndex renders the main page with meeting status
@@ -128,6 +135,26 @@ func (h *Handler) HandlePartialMeetingList(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		log.Printf("Error rendering template: %v", err)
 		http.Error(w, "Failed to render meeting list", http.StatusInternalServerError)
+	}
+}
+
+// HandlePartialStats renders anonymous occupancy for recent days for HTMX updates
+func (h *Handler) HandlePartialStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	rooms, err := h.stats.RecentDays(r.Context(), recentDays)
+	if err != nil {
+		log.Printf("Error loading occupancy statistics: %v", err)
+		http.Error(w, "Failed to load statistics", http.StatusServiceUnavailable)
+		return
+	}
+	active := make([]stats.Room, 0, len(rooms))
+	for _, room := range rooms {
+		if room.Active > 0 {
+			active = append(active, room)
+		}
+	}
+	if err := h.templates.ExecuteTemplate(w, "recent_stats", struct{ Rooms []stats.Room }{active}); err != nil {
+		log.Printf("Error rendering stats template: %v", err)
 	}
 }
 

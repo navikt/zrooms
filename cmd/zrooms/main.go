@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"cloud.google.com/go/storage"
 	"github.com/navikt/zrooms/internal/api"
@@ -17,6 +18,7 @@ import (
 	"github.com/navikt/zrooms/internal/repository/gcs"
 	"github.com/navikt/zrooms/internal/repository/memory"
 	"github.com/navikt/zrooms/internal/service"
+	"github.com/navikt/zrooms/internal/stats"
 	"github.com/navikt/zrooms/internal/web"
 	"github.com/navikt/zrooms/internal/zoom"
 )
@@ -26,8 +28,15 @@ func main() {
 	if err := config.Validate(); err != nil {
 		log.Fatal(err)
 	}
+	location, err := time.LoadLocation("Europe/Oslo")
+	if err != nil {
+		log.Fatalf("Failed to load time zone: %v", err)
+	}
+	backgroundCtx, stopBackground := context.WithCancel(context.Background())
+	defer stopBackground()
 	var repo repository.Repository
 	var tokenBackend zoom.TokenBackend
+	var recorder *stats.Recorder
 	if bucket := os.Getenv("GCS_BUCKET"); bucket != "" {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		client, err := storage.NewClient(ctx, storage.WithJSONReads())
@@ -36,7 +45,9 @@ func main() {
 			log.Fatalf("Failed to create GCS client: %v", err)
 		}
 		defer client.Close()
-		repo = repository.NewStore(gcs.NewBackend(client, bucket))
+		recorder = stats.NewRecorder(stats.NewGCSBackend(client, bucket), location)
+		go recorder.KeepAlive(backgroundCtx, 6*time.Hour)
+		repo = repository.NewStore(gcs.NewBackend(client, bucket)).WithOccupancy(recorder)
 		tokenBackend = zoom.NewGCSTokenBackend(client, bucket)
 		err = repo.Check(ctx)
 		cancel()
@@ -46,7 +57,8 @@ func main() {
 		log.Print("Using GCS meeting storage")
 	} else {
 		log.Print("Using volatile in-memory storage for local development")
-		repo = memory.NewRepository()
+		recorder = stats.NewRecorder(stats.NewMemoryBackend(), location)
+		repo = memory.NewRepository().WithOccupancy(recorder)
 		tokenBackend = zoom.NewMemoryTokenBackend()
 	}
 	zoomConfig := config.GetZoomConfig()
@@ -56,13 +68,13 @@ func main() {
 	meetingService := service.NewMeetingService(repo)
 
 	// Set up web UI routes
-	webHandler, err := web.NewHandler(meetingService, "./internal/web/templates")
+	webHandler, err := web.NewHandler(meetingService, "./internal/web/templates", recorder)
 	if err != nil {
 		log.Fatalf("Failed to initialize web handler: %v", err)
 	}
 
 	// Set up admin routes
-	adminHandler, err := web.NewAdminHandler(meetingService, repo, "./internal/web/templates", oauth)
+	adminHandler, err := web.NewAdminHandler(meetingService, repo, "./internal/web/templates", oauth, recorder)
 	if err != nil {
 		log.Fatalf("Failed to initialize admin handler: %v", err)
 	}

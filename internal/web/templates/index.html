@@ -10,6 +10,50 @@
         {{template "meeting_list" .}}
     </div>
 </section>
+
+<section>
+    <h2>Last 7 Days</h2>
+    <div id="stats-container"
+         hx-get="/partial/stats"
+         hx-target="#stats-container"
+         hx-swap="innerHTML"
+         hx-trigger="sse:update, sse:connected, load, every 60s">
+    </div>
+</section>
+{{end}}
+
+{{define "recent_stats"}}
+{{range .Rooms}}
+    <h3>{{if .Topic}}{{.Topic}}{{else}}Meeting{{end}}</h3>
+    <div class="stats-table-wrapper">
+    <table class="stats-table">
+        <thead>
+            <tr>
+                <th>Day</th>
+                <th class="timeline-header">
+                    <div class="timeline-hours">{{range hourLabels}}<span>{{.}}</span>{{end}}</div>
+                </th>
+                <th>Active</th>
+                <th class="center">Peak</th>
+            </tr>
+        </thead>
+        <tbody>
+            {{range .Days}}
+            <tr>
+                <td>{{.Date.Format "Mon 02 Jan"}}</td>
+                <td><div class="timeline">{{range $slot, $count := .Slots}}<span class="occ occ-{{occupancyLevel $count}}" title="{{slotTime $slot}}: {{$count}}"></span>{{end}}</div></td>
+                <td>{{if .Active}}{{formatDuration .Active}}{{else}}-{{end}}</td>
+                <td class="center">{{if .Peak}}{{.Peak}}{{else}}-{{end}}</td>
+            </tr>
+            {{end}}
+        </tbody>
+    </table>
+    </div>
+{{else}}
+    <div class="no-meetings">
+        <p>No activity in the last 7 days</p>
+    </div>
+{{end}}
 {{end}}
 
 {{define "meeting_list"}}

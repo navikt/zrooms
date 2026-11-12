@@ -15,6 +15,7 @@ import (
 	"github.com/navikt/zrooms/internal/models"
 	"github.com/navikt/zrooms/internal/repository"
 	"github.com/navikt/zrooms/internal/service"
+	"github.com/navikt/zrooms/internal/stats"
 	"github.com/navikt/zrooms/internal/zoom"
 )
 
@@ -25,6 +26,7 @@ type AdminHandler struct {
 	templates      *template.Template
 	newOwnerClient func(context.Context, string) (ownerEmailClient, error)
 	oauth          *zoom.APIManager
+	stats          *stats.Recorder
 }
 
 type ownerEmailClient interface {
@@ -32,7 +34,7 @@ type ownerEmailClient interface {
 }
 
 // NewAdminHandler creates a new admin handler
-func NewAdminHandler(meetingService *service.MeetingService, repo repository.Repository, templatesDir string, oauth *zoom.APIManager) (*AdminHandler, error) {
+func NewAdminHandler(meetingService *service.MeetingService, repo repository.Repository, templatesDir string, oauth *zoom.APIManager, recorder *stats.Recorder) (*AdminHandler, error) {
 	// Parse admin templates
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"formatTime":     formatTime,
@@ -42,7 +44,7 @@ func NewAdminHandler(meetingService *service.MeetingService, repo repository.Rep
 		"isActive":       func(status models.MeetingStatus) bool { return status == models.MeetingStatusStarted },
 		"slice":          slice,
 		"now":            time.Now,
-	}).ParseGlob(filepath.Join(templatesDir, "admin", "*.html"))
+	}).Funcs(statsFuncs).ParseGlob(filepath.Join(templatesDir, "admin", "*.html"))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse admin templates: %w", err)
@@ -53,6 +55,7 @@ func NewAdminHandler(meetingService *service.MeetingService, repo repository.Rep
 		repo:           repo,
 		templates:      tmpl,
 		oauth:          oauth,
+		stats:          recorder,
 		newOwnerClient: func(ctx context.Context, hostID string) (ownerEmailClient, error) {
 			return oauth.ClientForUser(ctx, hostID)
 		},
@@ -68,6 +71,7 @@ func (h *AdminHandler) SetupAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/admin/meetings/", auth.RequireAuth(h.handleMeetingDetail))
 	mux.HandleFunc("/admin/meetings/delete/", auth.RequireAuth(h.handleDeleteMeeting))
 	mux.HandleFunc("/admin/meetings/raw/", auth.RequireAuth(h.handleMeetingRawData))
+	mux.HandleFunc("/admin/stats", auth.RequireAuth(h.handleStats))
 }
 
 // handleAdminDashboard renders the main admin dashboard
@@ -339,6 +343,46 @@ func (h *AdminHandler) handleMeetingRawData(w http.ResponseWriter, r *http.Reque
 	w.Write(prettyBytes)
 }
 
+// handleStats renders daily occupancy statistics for one month
+func (h *AdminHandler) handleStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	location := h.stats.Location()
+	month := time.Now().In(location)
+	if value := r.URL.Query().Get("month"); value != "" {
+		parsed, err := time.ParseInLocation(stats.MonthLayout, value, location)
+		if err != nil {
+			http.Error(w, "Invalid month, expected YYYY-MM", http.StatusBadRequest)
+			return
+		}
+		month = parsed
+	}
+	month = time.Date(month.Year(), month.Month(), 1, 0, 0, 0, 0, location)
+	rooms, err := h.stats.MonthReport(r.Context(), month)
+	if err != nil {
+		log.Printf("Error loading occupancy statistics: %v", err)
+		http.Error(w, "Unable to load statistics", http.StatusServiceUnavailable)
+		return
+	}
+	viewModel := struct {
+		Month       time.Time
+		Previous    string
+		Next        string
+		Rooms       []stats.Room
+		LastUpdated string
+		CurrentYear int
+	}{
+		Month:       month,
+		Previous:    month.AddDate(0, -1, 0).Format(stats.MonthLayout),
+		Next:        month.AddDate(0, 1, 0).Format(stats.MonthLayout),
+		Rooms:       rooms,
+		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
+		CurrentYear: time.Now().Year(),
+	}
+	if err := h.templates.ExecuteTemplate(w, "stats.html", viewModel); err != nil {
+		log.Printf("Error rendering stats template: %v", err)
+	}
+}
+
 // AdminStats holds statistics for the admin dashboard
 type AdminStats struct {
 	TotalMeetings     int
@@ -387,6 +431,25 @@ func formatDateTime(t time.Time) string {
 		return "-"
 	}
 	return t.Format("2006-01-02 15:04:05")
+}
+
+// statsFuncs are template helpers shared by the admin and public statistics views
+var statsFuncs = template.FuncMap{
+	"formatDuration": formatDuration,
+	"slotTime":       slotTime,
+	"occupancyLevel": func(count int) int { return min(count, 4) },
+	"hourLabels":     func() []string { return []string{"00", "03", "06", "09", "12", "15", "18", "21"} },
+}
+
+// formatDuration formats a duration as hours and minutes
+func formatDuration(d time.Duration) string {
+	d = d.Round(time.Minute)
+	return fmt.Sprintf("%dh %02dm", int(d.Hours()), int(d.Minutes())%60)
+}
+
+// slotTime returns the wall-clock start of a 30-minute slot
+func slotTime(slot int) string {
+	return fmt.Sprintf("%02d:%02d", slot/2, slot%2*30)
 }
 
 // statusClass returns CSS class for meeting status

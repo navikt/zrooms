@@ -13,6 +13,7 @@ import (
 	"github.com/navikt/zrooms/internal/repository"
 	"github.com/navikt/zrooms/internal/repository/memory"
 	"github.com/navikt/zrooms/internal/service"
+	"github.com/navikt/zrooms/internal/stats"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,7 +33,7 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 		require.NoError(t, err)
 	}
 	svc := service.NewMeetingService(repo)
-	admin, err := NewAdminHandler(svc, repo, "./templates", nil)
+	admin, err := NewAdminHandler(svc, repo, "./templates", nil, stats.NewRecorder(stats.NewMemoryBackend(), time.UTC))
 	require.NoError(t, err)
 	ownerCalls := 0
 	admin.newOwnerClient = func(_ context.Context, hostID string) (ownerEmailClient, error) {
@@ -71,7 +72,7 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 	persisted, err := repo.GetMeeting(ctx, "123")
 	require.NoError(t, err)
 	require.Empty(t, persisted.Host.Email)
-	public, err := NewHandler(svc, "./templates")
+	public, err := NewHandler(svc, "./templates", stats.NewRecorder(stats.NewMemoryBackend(), time.UTC))
 	require.NoError(t, err)
 	defer public.Shutdown()
 	recorder := httptest.NewRecorder()
@@ -124,7 +125,7 @@ func TestAdminReportsOwnerLookupUnavailable(t *testing.T) {
 		Meeting: models.Meeting{ID: "123", Host: models.Participant{ID: "owner-id"}},
 	})
 	require.NoError(t, err)
-	handler, err := NewAdminHandler(service.NewMeetingService(repo), repo, "./templates", nil)
+	handler, err := NewAdminHandler(service.NewMeetingService(repo), repo, "./templates", nil, stats.NewRecorder(stats.NewMemoryBackend(), time.UTC))
 	require.NoError(t, err)
 	handler.newOwnerClient = func(context.Context, string) (ownerEmailClient, error) {
 		return nil, errors.New("credentials not configured")
@@ -166,4 +167,43 @@ func TestIntrospectionInvalidTokenIsUnauthorized(t *testing.T) {
 		t.Fatal("invalid token reached admin")
 	})(recorder, request)
 	require.Equal(t, http.StatusUnauthorized, recorder.Code)
+}
+
+func TestAdminStatsShowsRecordedOccupancy(t *testing.T) {
+	recorder := stats.NewRecorder(stats.NewMemoryBackend(), time.UTC)
+	repo := memory.NewRepository().WithOccupancy(recorder)
+	start := time.Now().UTC().Add(-time.Minute).UnixMilli()
+	_, err := repo.ApplyEvent(context.Background(), models.MeetingEvent{
+		Type: "meeting.participant_joined", EventTS: start, ParticipantID: "guest",
+		Meeting: models.Meeting{ID: "123", UUID: "instance", Topic: "<b>Room</b>"},
+	})
+	require.NoError(t, err)
+	handler, err := NewAdminHandler(service.NewMeetingService(repo), repo, "./templates", nil, recorder)
+	require.NoError(t, err)
+
+	response := httptest.NewRecorder()
+	handler.handleStats(response, httptest.NewRequest(http.MethodGet, "/admin/stats", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	body := response.Body.String()
+	require.Contains(t, body, "&lt;b&gt;Room&lt;/b&gt;")
+	require.Contains(t, body, "occ occ-1")
+	require.Contains(t, body, "now")
+	require.NotContains(t, body, "guest")
+
+	response = httptest.NewRecorder()
+	handler.handleStats(response, httptest.NewRequest(http.MethodGet, "/admin/stats?month=nope", nil))
+	require.Equal(t, http.StatusBadRequest, response.Code)
+
+	public, err := NewHandler(service.NewMeetingService(repo), "./templates", recorder)
+	require.NoError(t, err)
+	defer public.Shutdown()
+	response = httptest.NewRecorder()
+	public.HandlePartialStats(response, httptest.NewRequest(http.MethodGet, "/partial/stats", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	body = response.Body.String()
+	require.Contains(t, body, "&lt;b&gt;Room&lt;/b&gt;")
+	require.Contains(t, body, "occ occ-1")
+	require.Equal(t, 7, strings.Count(body, `class="timeline"`))
+	require.NotContains(t, body, "meeting-id")
+	require.NotContains(t, body, "guest")
 }

@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zrooms Admin - Statistics</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/admin.css">
+</head>
+<body>
+    <nav class="admin-nav">
+        <div class="container">
+            <h1>Zrooms Admin</h1>
+            <div class="nav-links">
+                <a href="/admin">Dashboard</a>
+                <a href="/admin/meetings">All Meetings</a>
+                <a href="/admin/stats">Statistics</a>
+                <a href="/">Public View</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container">
+        <div class="meetings-header">
+            <h2>Occupancy {{.Month.Format "January 2006"}}</h2>
+            <span>
+                <a href="/admin/stats?month={{.Previous}}">&larr; Previous</a>
+                &middot;
+                <a href="/admin/stats?month={{.Next}}">Next &rarr;</a>
+            </span>
+        </div>
+        <p class="stats-note">Times are shown in {{.Month.Location}}. Each cell is 30 minutes; darker means more participants (peak in the slot).</p>
+
+        {{range .Rooms}}
+        <section class="stats-room">
+            <h3>{{if .Topic}}{{.Topic}}{{else}}Meeting{{end}} <span class="meeting-id">{{.MeetingID}}</span></h3>
+            <p>Active {{formatDuration .Active}} &middot; Participant time {{formatDuration .ParticipantTime}}</p>
+            <div class="stats-table-wrapper">
+            <table class="meetings-table stats-table">
+                <thead>
+                    <tr>
+                        <th>Day</th>
+                        <th>Active</th>
+                        <th>Participant time</th>
+                        <th>Peak</th>
+                        <th class="timeline-header">
+                            <div class="timeline-hours">{{range hourLabels}}<span>{{.}}</span>{{end}}</div>
+                        </th>
+                        <th>Sessions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Days}}{{if .Active}}
+                    <tr>
+                        <td>{{.Date.Format "Mon 02 Jan"}}</td>
+                        <td>{{formatDuration .Active}}</td>
+                        <td>{{formatDuration .ParticipantTime}}</td>
+                        <td>{{.Peak}}</td>
+                        <td>
+                            <div class="timeline">{{range $slot, $count := .Slots}}<span class="occ occ-{{occupancyLevel $count}}" title="{{slotTime $slot}}: {{$count}}"></span>{{end}}</div>
+                        </td>
+                        <td>
+                            <ul class="sessions">
+                                {{range .Sessions}}
+                                <li>{{.Start.Format "15:04"}}&ndash;{{if .Ongoing}}now{{else}}{{.End.Format "15:04"}}{{end}} ({{formatDuration .Duration}}, peak {{.Peak}})</li>
+                                {{end}}
+                            </ul>
+                        </td>
+                    </tr>
+                    {{end}}{{end}}
+                </tbody>
+            </table>
+            </div>
+        </section>
+        {{else}}
+        <div class="no-meetings">
+            <h3>No Statistics</h3>
+            <p>No participant activity was recorded this month.</p>
+        </div>
+        {{end}}
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>&copy; {{.CurrentYear}} Zrooms Admin - Last updated: {{.LastUpdated}}</p>
+        </div>
+    </footer>
+</body>
+</html>

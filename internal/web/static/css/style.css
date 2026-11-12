@@ -265,3 +265,54 @@ footer {
         padding: 0.5rem;
     }
 }
+
+/* Occupancy statistics */
+.stats-note {
+    color: #7f8c8d;
+}
+
+.stats-room {
+    margin-bottom: 2rem;
+}
+
+.stats-table-wrapper {
+    overflow-x: auto;
+}
+
+.stats-table .timeline-header,
+.stats-table td:nth-child(5) {
+    min-width: 288px;
+}
+
+.timeline,
+.timeline-hours {
+    display: grid;
+    gap: 1px;
+}
+
+.timeline {
+    grid-template-columns: repeat(48, 1fr);
+}
+
+.timeline-hours {
+    grid-template-columns: repeat(8, 1fr);
+    font-size: 0.75rem;
+    font-weight: normal;
+}
+
+.occ {
+    height: 1.25rem;
+    border-radius: 2px;
+}
+
+.occ-0 { background: #ecf0f1; }
+.occ-1 { background: #a9dfbf; }
+.occ-2 { background: #52be80; }
+.occ-3 { background: #239b56; }
+.occ-4 { background: #145a32; }
+
+.sessions {
+    margin: 0;
+    padding-left: 1rem;
+    white-space: nowrap;
+}

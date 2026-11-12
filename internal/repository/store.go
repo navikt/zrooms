@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"strings"
 	"time"
@@ -12,12 +13,28 @@ import (
 )
 
 type Store struct {
-	backend Backend
-	now     func() time.Time
+	backend   Backend
+	occupancy OccupancyRecorder
+	now       func() time.Time
 }
 
 func NewStore(backend Backend) *Store {
 	return &Store{backend: backend, now: time.Now}
+}
+
+// WithOccupancy enables best-effort recording of presence changes for statistics.
+func (s *Store) WithOccupancy(recorder OccupancyRecorder) *Store {
+	s.occupancy = recorder
+	return s
+}
+
+func (s *Store) recordOccupancy(ctx context.Context, state *State, changes []models.OccupancyChange) {
+	if s.occupancy == nil || len(changes) == 0 {
+		return
+	}
+	if err := s.occupancy.Record(ctx, state.Meeting.ID, state.Meeting.Topic, changes); err != nil {
+		log.Printf("Recording meeting occupancy failed: %v", err)
+	}
 }
 
 func (s *Store) Check(ctx context.Context) error {
@@ -77,7 +94,11 @@ func (s *Store) ApplyEvent(ctx context.Context, event models.MeetingEvent) (*mod
 		if err != nil && !errors.Is(err, ErrNotFound) {
 			return nil, err
 		}
+		var changes []models.OccupancyChange
 		if errors.Is(err, ErrNotFound) || s.expired(state) {
+			if err == nil {
+				changes = state.closeOccupancy()
+			}
 			state = &State{SchemaVersion: 1, Meeting: models.Meeting{ID: event.Meeting.ID}}
 		}
 		if state.DeletedAt != 0 {
@@ -86,8 +107,17 @@ func (s *Store) ApplyEvent(ctx context.Context, event models.MeetingEvent) (*mod
 			}
 			state = &State{SchemaVersion: 1, Meeting: models.Meeting{ID: event.Meeting.ID}}
 		}
+		before, occurrence, last := state.presentCount(), state.Meeting.UUID, state.lastEventTS()
 		if !state.apply(event) {
 			return nil, nil
+		}
+		// A replaced occurrence without meeting.ended is closed at its last known activity.
+		if occurrence != "" && occurrence != state.Meeting.UUID && before > 0 {
+			changes = append(changes, models.OccupancyChange{TS: last, Delta: -before})
+			before = 0
+		}
+		if after := state.presentCount(); after != before {
+			changes = append(changes, models.OccupancyChange{TS: event.EventTS, Delta: after - before})
 		}
 		state.UpdatedAt = s.now().UTC()
 		err = s.backend.Write(ctx, event.Meeting.ID, state, version)
@@ -97,6 +127,7 @@ func (s *Store) ApplyEvent(ctx context.Context, event models.MeetingEvent) (*mod
 		if err != nil {
 			return nil, err
 		}
+		s.recordOccupancy(ctx, state, changes)
 		return state.view(), nil
 	}
 	return nil, fmt.Errorf("applying event: %w", ErrConflict)
@@ -114,13 +145,16 @@ func (s *Store) DeleteMeeting(ctx context.Context, id string) error {
 			return ErrNotFound
 		}
 		// Remove content but retain a short-lived marker against delayed retries.
-		state = &State{
+		marker := &State{
 			SchemaVersion: 1, Meeting: models.Meeting{ID: id},
 			DeletedAt: s.now().UnixMilli(), UpdatedAt: s.now().UTC(),
 		}
-		err = s.backend.Write(ctx, id, state, version)
+		err = s.backend.Write(ctx, id, marker, version)
 		if errors.Is(err, ErrConflict) {
 			continue
+		}
+		if err == nil {
+			s.recordOccupancy(ctx, state, state.closeOccupancy())
 		}
 		return err
 	}
@@ -166,12 +200,8 @@ func (s *Store) deleteHostMeeting(ctx context.Context, id, hostID string, cutoff
 		if s.expired(state) || state.DeletedAt != 0 || state.Meeting.Host.ID != hostID {
 			return false, nil
 		}
-		latest := max(state.MetadataTS, state.LifecycleTS, state.OperatorTS, state.OccurrenceTS)
-		for _, participant := range state.Participants {
-			latest = max(latest, participant.EventTS)
-		}
 		// A delayed uninstall callback must not delete state accepted after reinstallation.
-		if latest > cutoff {
+		if max(state.MetadataTS, state.OperatorTS, state.lastEventTS()) > cutoff {
 			return false, nil
 		}
 		marker := &State{
@@ -182,9 +212,38 @@ func (s *Store) deleteHostMeeting(ctx context.Context, id, hostID string, cutoff
 		if errors.Is(err, ErrConflict) {
 			continue
 		}
+		if err == nil {
+			s.recordOccupancy(ctx, state, state.closeOccupancy())
+		}
 		return err == nil, err
 	}
 	return false, fmt.Errorf("deleting host meeting: %w", ErrConflict)
+}
+
+func (s *State) presentCount() int {
+	count := 0
+	for _, participant := range s.Participants {
+		if participant.Present {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *State) lastEventTS() int64 {
+	latest := max(s.LifecycleTS, s.OccurrenceTS)
+	for _, participant := range s.Participants {
+		latest = max(latest, participant.EventTS)
+	}
+	return latest
+}
+
+// closeOccupancy ends presence that will be discarded without a leave event.
+func (s *State) closeOccupancy() []models.OccupancyChange {
+	if count := s.presentCount(); count > 0 {
+		return []models.OccupancyChange{{TS: s.lastEventTS(), Delta: -count}}
+	}
+	return nil
 }
 
 func (s *State) view() *models.Meeting {
@@ -193,11 +252,7 @@ func (s *State) view() *models.Meeting {
 	meeting.Participants = nil
 	meeting.ParticipantCount = 0
 	if meeting.Status == models.MeetingStatusStarted {
-		for _, participant := range s.Participants {
-			if participant.Present {
-				meeting.ParticipantCount++
-			}
-		}
+		meeting.ParticipantCount = s.presentCount()
 	}
 	return &meeting
 }
