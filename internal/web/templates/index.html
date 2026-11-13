@@ -17,14 +17,32 @@
          hx-get="/partial/stats"
          hx-target="#stats-container"
          hx-swap="innerHTML"
-         hx-trigger="sse:update, sse:connected, load, every 60s">
+         hx-include="#history-filter"
+         hx-trigger="sse:update, sse:connected, every 60s">
+        {{template "recent_stats" .History}}
     </div>
 </section>
 {{end}}
 
 {{define "recent_stats"}}
+<form id="history-filter" class="history-filter" action="/" method="get"
+      hx-get="/partial/stats" hx-target="#stats-container" hx-swap="innerHTML">
+    <label for="history-meeting">Meeting</label>
+    <select id="history-meeting" name="meeting_id">
+        <option value="">All recurring meetings</option>
+        {{if and .SelectedMeeting (not .SelectionFound)}}<option value="{{.SelectedMeeting}}" selected>Unavailable meeting ({{.SelectedMeeting}})</option>{{end}}
+        {{range .Meetings}}
+        <option value="{{.MeetingID}}" {{if eq $.SelectedMeeting .MeetingID}}selected{{end}}>{{if .Topic}}{{.Topic}}{{else}}Meeting{{end}} ({{.MeetingID}})</option>
+        {{end}}
+    </select>
+    <button type="submit">Show history</button>
+</form>
+<p>Recurring and no-fixed-time meetings from all users. Only days with activity are shown.</p>
+{{if .LoadFailed}}
+<p role="alert">Unable to load meeting history. It will retry automatically.</p>
+{{else}}
 {{range .Rooms}}
-    <h3>{{if .Topic}}{{.Topic}}{{else}}Meeting{{end}}</h3>
+    <h3>{{if .Topic}}{{.Topic}}{{else}}Meeting{{end}} <span class="meeting-id">{{.MeetingID}}</span></h3>
     <div class="stats-table-wrapper">
     <table class="stats-table">
         <thead>
@@ -38,21 +56,22 @@
             </tr>
         </thead>
         <tbody>
-            {{range .Days}}
+            {{range .Days}}{{if .Active}}
             <tr>
                 <td>{{.Date.Format "Mon 02 Jan"}}</td>
                 <td><div class="timeline">{{range $slot, $count := .Slots}}<span class="occ occ-{{occupancyLevel $count}}" title="{{slotTime $slot}}: {{$count}}"></span>{{end}}</div></td>
                 <td>{{if .Active}}{{formatDuration .Active}}{{else}}-{{end}}</td>
                 <td class="center">{{if .Peak}}{{.Peak}}{{else}}-{{end}}</td>
             </tr>
-            {{end}}
+            {{end}}{{end}}
         </tbody>
     </table>
     </div>
 {{else}}
     <div class="no-meetings">
-        <p>No activity in the last 7 days</p>
+        <p>No activity in the last 7 days{{if .SelectedMeeting}} for the selected meeting{{end}}</p>
     </div>
+{{end}}
 {{end}}
 {{end}}
 

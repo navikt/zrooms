@@ -36,6 +36,7 @@ type Day struct {
 
 type Room struct {
 	MeetingID       string
+	MeetingType     int
 	Topic           string
 	Days            []Day
 	Active          time.Duration
@@ -99,7 +100,7 @@ func slotOf(t time.Time) int {
 }
 
 func buildRoom(month *Month, from, to, now time.Time) Room {
-	room := Room{MeetingID: month.MeetingID, Topic: month.Topic}
+	room := Room{MeetingID: month.MeetingID, MeetingType: month.MeetingType, Topic: month.Topic}
 	segments := occupancy(month.Changes, from, to, now)
 	allSessions := sessions(segments, now)
 	for date := from; date.Before(to); date = date.AddDate(0, 0, 1) {

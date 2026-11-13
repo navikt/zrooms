@@ -131,6 +131,21 @@ header {
 }
 
 /* Main content styles */
+.history-filter {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.history-filter select,
+.history-filter button {
+    font: inherit;
+    max-width: 100%;
+    padding: 0.5rem;
+}
+
 main {
     padding: 2rem 0;
 }

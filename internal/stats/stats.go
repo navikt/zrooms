@@ -24,6 +24,7 @@ const (
 type Month struct {
 	SchemaVersion int                      `json:"schema_version"`
 	MeetingID     string                   `json:"meeting_id"`
+	MeetingType   int                      `json:"meeting_type,omitempty"`
 	Topic         string                   `json:"topic,omitempty"`
 	Month         string                   `json:"month"`
 	Changes       []models.OccupancyChange `json:"changes"`
@@ -63,7 +64,7 @@ func (r *Recorder) oldestMonth() string {
 }
 
 // Record appends changes to the month files they belong to.
-func (r *Recorder) Record(ctx context.Context, meetingID, topic string, changes []models.OccupancyChange) error {
+func (r *Recorder) Record(ctx context.Context, meeting models.Meeting, changes []models.OccupancyChange) error {
 	oldest := r.oldestMonth()
 	byMonth := make(map[string][]models.OccupancyChange)
 	for _, change := range changes {
@@ -74,16 +75,16 @@ func (r *Recorder) Record(ctx context.Context, meetingID, topic string, changes 
 	}
 	var errs []error
 	for month, monthChanges := range byMonth {
-		errs = append(errs, r.append(ctx, meetingID, topic, month, monthChanges))
+		errs = append(errs, r.append(ctx, meeting, month, monthChanges))
 	}
 	return errors.Join(errs...)
 }
 
-func (r *Recorder) append(ctx context.Context, meetingID, topic, month string, changes []models.OccupancyChange) error {
+func (r *Recorder) append(ctx context.Context, meeting models.Meeting, month string, changes []models.OccupancyChange) error {
 	for attempt := 0; attempt < 5; attempt++ {
-		current, version, err := r.backend.Read(ctx, meetingID, month)
+		current, version, err := r.backend.Read(ctx, meeting.ID, month)
 		if errors.Is(err, repository.ErrNotFound) {
-			current = &Month{SchemaVersion: 1, MeetingID: meetingID, Month: month}
+			current = &Month{SchemaVersion: 1, MeetingID: meeting.ID, Month: month}
 		} else if err != nil {
 			return err
 		}
@@ -91,8 +92,11 @@ func (r *Recorder) append(ctx context.Context, meetingID, topic, month string, c
 		sort.SliceStable(current.Changes, func(i, j int) bool {
 			return current.Changes[i].TS < current.Changes[j].TS
 		})
-		if topic != "" {
-			current.Topic = topic
+		if meeting.Topic != "" {
+			current.Topic = meeting.Topic
+		}
+		if meeting.Type != 0 {
+			current.MeetingType = meeting.Type
 		}
 		current.UpdatedAt = r.now().UTC()
 		err = r.backend.Write(ctx, current, version)
@@ -155,6 +159,9 @@ func (r *Recorder) Report(ctx context.Context, from, to time.Time) ([]Room, erro
 			room.Changes = append(room.Changes, current.Changes...)
 			if current.Topic != "" {
 				room.Topic = current.Topic
+			}
+			if current.MeetingType != 0 {
+				room.MeetingType = current.MeetingType
 			}
 		}
 	}

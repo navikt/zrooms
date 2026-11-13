@@ -19,17 +19,17 @@ func TestMonthReportSummarizesDailyOccupancy(t *testing.T) {
 	recorder.now = func() time.Time { return time.Date(2026, time.November, 11, 14, 0, 0, 0, oslo) }
 	ctx := context.Background()
 	// Monday: one participant for six hours. Delivered out of order.
-	require.NoError(t, recorder.Record(ctx, "123", "Room", []models.OccupancyChange{{TS: at(9, 15, 0), Delta: -1}}))
-	require.NoError(t, recorder.Record(ctx, "123", "", []models.OccupancyChange{{TS: at(9, 9, 0), Delta: 1}}))
+	require.NoError(t, recorder.Record(ctx, models.Meeting{ID: "123", Topic: "Room", Type: 3}, []models.OccupancyChange{{TS: at(9, 15, 0), Delta: -1}}))
+	require.NoError(t, recorder.Record(ctx, models.Meeting{ID: "123"}, []models.OccupancyChange{{TS: at(9, 9, 0), Delta: 1}}))
 	// Wednesday: one before lunch, three all afternoon, still ongoing.
-	require.NoError(t, recorder.Record(ctx, "123", "", []models.OccupancyChange{
+	require.NoError(t, recorder.Record(ctx, models.Meeting{ID: "123"}, []models.OccupancyChange{
 		{TS: at(11, 8, 0), Delta: 1}, {TS: at(11, 11, 0), Delta: -1},
 		{TS: at(11, 12, 15), Delta: 1}, {TS: at(11, 12, 15), Delta: 1}, {TS: at(11, 12, 20), Delta: 1},
 	}))
 	// An unmatched leave from lost events must not create negative occupancy.
-	require.NoError(t, recorder.Record(ctx, "other", "", []models.OccupancyChange{{TS: at(2, 10, 0), Delta: -1}}))
+	require.NoError(t, recorder.Record(ctx, models.Meeting{ID: "other"}, []models.OccupancyChange{{TS: at(2, 10, 0), Delta: -1}}))
 	// Changes beyond retention are discarded.
-	require.NoError(t, recorder.Record(ctx, "old", "", []models.OccupancyChange{
+	require.NoError(t, recorder.Record(ctx, models.Meeting{ID: "old"}, []models.OccupancyChange{
 		{TS: time.Date(2025, time.October, 1, 10, 0, 0, 0, oslo).UnixMilli(), Delta: 1},
 	}))
 
@@ -38,6 +38,7 @@ func TestMonthReportSummarizesDailyOccupancy(t *testing.T) {
 	require.Len(t, rooms, 2)
 	room := rooms[0]
 	require.Equal(t, "Room", room.Topic)
+	require.Equal(t, 3, room.MeetingType)
 	require.Zero(t, rooms[1].Active)
 	require.Len(t, room.Days, 30)
 	require.Zero(t, room.Days[9].Active)
@@ -77,7 +78,7 @@ func TestRecentDaysSpansMonthFiles(t *testing.T) {
 	recorder := NewRecorder(NewMemoryBackend(), oslo)
 	recorder.now = func() time.Time { return time.Date(2026, time.November, 3, 12, 0, 0, 0, oslo) }
 	ctx := context.Background()
-	require.NoError(t, recorder.Record(ctx, "123", "Room", []models.OccupancyChange{
+	require.NoError(t, recorder.Record(ctx, models.Meeting{ID: "123", Topic: "Room"}, []models.OccupancyChange{
 		{TS: time.Date(2026, time.October, 31, 23, 0, 0, 0, oslo).UnixMilli(), Delta: 1},
 		{TS: time.Date(2026, time.November, 1, 1, 0, 0, 0, oslo).UnixMilli(), Delta: -1},
 	}))

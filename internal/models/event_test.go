@@ -15,7 +15,10 @@ func TestMeetingEventContract(t *testing.T) {
 		json        string
 		id          string
 		participant string
+		meetingType int
 	}{
+		{name: "recurring fixed time", json: `{"event":"meeting.created","event_ts":1000,"payload":{"object":{"id":"123","type":8}}}`, id: "123", meetingType: 8},
+		{name: "recurring no fixed time", json: `{"event":"meeting.started","event_ts":1000,"payload":{"object":{"id":"123","uuid":"instance","type":3}}}`, id: "123", meetingType: 3},
 		{name: "numeric updated ID", json: `{"event":"meeting.updated","event_ts":1000,"payload":{"operator":"creator@example.test","object":{"id":1234567890123,"topic":"Updated"}}}`, id: "1234567890123"},
 		{name: "anonymous participant", json: `{"event":"meeting.participant_joined","event_ts":1000,"payload":{"object":{"id":"123","uuid":"instance","participant":{"id":"","user_id":"guest-session","user_name":"Not retained","email":"not-retained@example.test"}}}}`, id: "123", participant: "guest-session"},
 	}
@@ -26,6 +29,7 @@ func TestMeetingEventContract(t *testing.T) {
 			event, err := webhook.MeetingEvent()
 			require.NoError(t, err)
 			require.Equal(t, tt.id, event.Meeting.ID)
+			require.Equal(t, tt.meetingType, event.Meeting.Type)
 			require.Equal(t, tt.participant, event.ParticipantID)
 			require.Empty(t, event.Meeting.Participants)
 			require.Empty(t, event.Meeting.Host.Email)

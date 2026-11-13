@@ -32,7 +32,7 @@ func (s *Store) recordOccupancy(ctx context.Context, state *State, changes []mod
 	if s.occupancy == nil || len(changes) == 0 {
 		return
 	}
-	if err := s.occupancy.Record(ctx, state.Meeting.ID, state.Meeting.Topic, changes); err != nil {
+	if err := s.occupancy.Record(ctx, state.Meeting, changes); err != nil {
 		log.Printf("Recording meeting occupancy failed: %v", err)
 	}
 }
@@ -261,7 +261,7 @@ func (s *State) apply(event models.MeetingEvent) bool {
 	meeting := &s.Meeting
 	isMetadata := event.Type == "meeting.created" || event.Type == "meeting.updated"
 	if isMetadata {
-		changed := false
+		changed := s.updateMeetingType(event)
 		if event.Type == "meeting.created" && meeting.CreatorEmail == "" && event.Meeting.OperatorEmail != "" {
 			meeting.CreatorEmail = event.Meeting.OperatorEmail
 			changed = true
@@ -352,8 +352,18 @@ func (s *State) apply(event models.MeetingEvent) bool {
 	if meeting.Duration == 0 {
 		meeting.Duration = event.Meeting.Duration
 	}
+	s.updateMeetingType(event)
 	s.updateOperator(event)
 	return true
+}
+
+func (s *State) updateMeetingType(event models.MeetingEvent) bool {
+	if event.Meeting.Type != 0 && event.EventTS > s.MeetingTypeTS {
+		s.Meeting.Type = event.Meeting.Type
+		s.MeetingTypeTS = event.EventTS
+		return true
+	}
+	return false
 }
 
 func (s *State) updateOperator(event models.MeetingEvent) bool {

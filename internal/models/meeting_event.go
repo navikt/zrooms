@@ -66,7 +66,7 @@ func (e WebhookEvent) MeetingEvent() (MeetingEvent, error) {
 	event := MeetingEvent{
 		Type: e.Event, EventTS: e.EventTS,
 		Meeting: Meeting{
-			ID: payload.Object.ID, UUID: payload.Object.UUID,
+			ID: payload.Object.ID, UUID: payload.Object.UUID, Type: payload.Object.Type,
 			Topic: payload.Object.Topic, Host: Participant{ID: payload.Object.HostID},
 			OperatorEmail: payload.Operator, Duration: payload.Object.Duration,
 			StartTime: payload.Object.StartTime, EndTime: payload.Object.EndTime,

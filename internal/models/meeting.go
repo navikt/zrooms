@@ -31,6 +31,7 @@ type Participant struct {
 // Meeting represents a Zoom meeting
 type Meeting struct {
 	ID               string        `json:"id"`
+	Type             int           `json:"type,omitempty"`
 	UUID             string        `json:"uuid,omitempty"`
 	Topic            string        `json:"topic"`
 	StartTime        time.Time     `json:"start_time"`
@@ -43,6 +44,11 @@ type Meeting struct {
 	CreatorEmail     string        `json:"creator_email,omitempty"`
 	ParticipantCount int           `json:"-"`
 	UpdatedAt        time.Time     `json:"-"`
+}
+
+// IsRecurringMeeting includes recurring meetings with and without a fixed time.
+func IsRecurringMeeting(meetingType int) bool {
+	return meetingType == 3 || meetingType == 8
 }
 
 // AddParticipant adds a participant to the meeting

@@ -129,7 +129,7 @@ type recordedOccupancy struct {
 	changes []models.OccupancyChange
 }
 
-func (r *recordedOccupancy) Record(_ context.Context, _, _ string, changes []models.OccupancyChange) error {
+func (r *recordedOccupancy) Record(_ context.Context, _ models.Meeting, changes []models.OccupancyChange) error {
 	r.changes = append(r.changes, changes...)
 	return nil
 }
@@ -142,6 +142,7 @@ func TestOccupancyChangesFollowAcceptedPresence(t *testing.T) {
 		backend.state = state
 		return nil
 	}
+
 	recorder := &recordedOccupancy{}
 	store := NewStore(backend).WithOccupancy(recorder)
 	store.now = func() time.Time { return now }
@@ -170,4 +171,39 @@ func TestOccupancyChangesFollowAcceptedPresence(t *testing.T) {
 	apply("meeting.participant_joined", base+300, "third", "d")
 	require.NoError(t, store.DeleteMeeting(context.Background(), "123"))
 	require.Equal(t, []models.OccupancyChange{{TS: base + 300, Delta: 1}, {TS: base + 300, Delta: -1}}, recorder.changes)
+}
+
+func TestMeetingTypeOrderingAndOmittedType(t *testing.T) {
+	now := time.Now().UTC()
+	base := now.Add(-time.Hour).UnixMilli()
+	backend := &testBackend{}
+	backend.write = func(state *State, _ int64) error {
+		backend.state = state
+		return nil
+	}
+	store := NewStore(backend)
+	store.now = func() time.Time { return now }
+	for _, step := range []struct {
+		kind        string
+		offset      int64
+		meetingType int
+		want        int
+	}{
+		{"meeting.created", 10, 3, 3},
+		{"meeting.participant_joined", 30, 0, 3},
+		// Metadata delivered after a newer participant event still supplies its type.
+		{"meeting.updated", 20, 8, 8},
+		{"meeting.updated", 15, 2, 8},
+		{"meeting.participant_left", 40, 0, 8},
+		{"meeting.updated", 50, 2, 2},
+	} {
+		_, err := store.ApplyEvent(context.Background(), models.MeetingEvent{
+			Type: step.kind, EventTS: base + step.offset, ParticipantID: "guest",
+			Meeting: models.Meeting{ID: "123", UUID: "occurrence", Type: step.meetingType, Topic: "Room"},
+		})
+		require.NoError(t, err)
+		meeting, err := store.GetMeeting(context.Background(), "123")
+		require.NoError(t, err)
+		require.Equal(t, step.want, meeting.Type)
+	}
 }

@@ -82,6 +82,10 @@ On NAIS, GCS uses the application's workload identity through Application Defaul
 
 Access the web dashboard at `http://localhost:8080/` to view room and meeting status. The interface updates automatically when meeting statuses change.
 
+The public meeting list and **Last 7 Days** history show recurring meetings only: Zoom type `3` (no fixed time) and type `8` (fixed time), regardless of creator. Use the meeting selector and **Show history** to view one meeting; live updates retain the selection. Days without participant activity are hidden. The **Admin** link in the header opens the authenticated admin panel, whose statistics still include all meeting types.
+
+Meeting types are retained with meeting state and new occupancy records. Older history without a type is shown only when retained meeting metadata identifies it as recurring; unclassified history stays available in admin statistics.
+
 ### Admin meeting owners
 
 The authenticated admin dashboard, meeting list, and detail page show the meeting owner using Zoom's `host_id`. Creator and last-editor emails remain separate because someone can schedule or edit a meeting on another host's behalf.

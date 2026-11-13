@@ -1,11 +1,13 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/navikt/zrooms/internal/config"
@@ -90,13 +92,23 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Prepare view model
 	zoomConfig := config.GetZoomConfig()
+	history, err := h.publicHistory(r.Context(), r.URL.Query().Get("meeting_id"), meetings)
+	if err != nil {
+		log.Printf("Error loading occupancy statistics: %v", err)
+		history = historyView{
+			SelectedMeeting: r.URL.Query().Get("meeting_id"),
+			LoadFailed:      true,
+		}
+	}
 	viewModel := struct {
 		Meetings    []service.MeetingStatusData
+		History     historyView
 		LastUpdated string
 		CurrentYear int
 		OAuthURL    string
 	}{
-		Meetings:    meetings,
+		Meetings:    recurringMeetings(meetings),
+		History:     history,
 		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
 		CurrentYear: time.Now().Year(),
 		OAuthURL:    "",
@@ -127,7 +139,7 @@ func (h *Handler) HandlePartialMeetingList(w http.ResponseWriter, r *http.Reques
 	viewModel := struct {
 		Meetings []service.MeetingStatusData
 	}{
-		Meetings: meetings,
+		Meetings: recurringMeetings(meetings),
 	}
 
 	// Render only the meeting_list template part
@@ -141,21 +153,80 @@ func (h *Handler) HandlePartialMeetingList(w http.ResponseWriter, r *http.Reques
 // HandlePartialStats renders anonymous occupancy for recent days for HTMX updates
 func (h *Handler) HandlePartialStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	rooms, err := h.stats.RecentDays(r.Context(), recentDays)
+	meetings, err := h.meetingService.GetMeetingStatusData(r.Context(), true)
+	if err != nil {
+		log.Printf("Error getting meeting data: %v", err)
+		http.Error(w, "Failed to get meeting data", http.StatusServiceUnavailable)
+		return
+	}
+	history, err := h.publicHistory(r.Context(), r.URL.Query().Get("meeting_id"), meetings)
 	if err != nil {
 		log.Printf("Error loading occupancy statistics: %v", err)
 		http.Error(w, "Failed to load statistics", http.StatusServiceUnavailable)
 		return
 	}
-	active := make([]stats.Room, 0, len(rooms))
-	for _, room := range rooms {
-		if room.Active > 0 {
-			active = append(active, room)
-		}
-	}
-	if err := h.templates.ExecuteTemplate(w, "recent_stats", struct{ Rooms []stats.Room }{active}); err != nil {
+	if err := h.templates.ExecuteTemplate(w, "recent_stats", history); err != nil {
 		log.Printf("Error rendering stats template: %v", err)
 	}
+}
+
+type historyView struct {
+	Meetings        []stats.Room
+	Rooms           []stats.Room
+	SelectedMeeting string
+	SelectionFound  bool
+	LoadFailed      bool
+}
+
+func recurringMeetings(meetings []service.MeetingStatusData) []service.MeetingStatusData {
+	result := make([]service.MeetingStatusData, 0, len(meetings))
+	for _, meeting := range meetings {
+		if models.IsRecurringMeeting(meeting.Meeting.Type) {
+			result = append(result, meeting)
+		}
+	}
+	return result
+}
+
+func (h *Handler) publicHistory(ctx context.Context, selected string, meetings []service.MeetingStatusData) (historyView, error) {
+	rooms, err := h.stats.RecentDays(ctx, recentDays)
+	if err != nil {
+		return historyView{}, err
+	}
+	types := make(map[string]int, len(meetings))
+	for _, meeting := range meetings {
+		types[meeting.Meeting.ID] = meeting.Meeting.Type
+	}
+	view := historyView{SelectedMeeting: selected}
+	options := make(map[string]bool)
+	for _, room := range rooms {
+		// Older statistics lack a type; use retained meeting metadata when available.
+		if meetingType := types[room.MeetingID]; meetingType != 0 {
+			room.MeetingType = meetingType
+		}
+		if !models.IsRecurringMeeting(room.MeetingType) {
+			continue
+		}
+		view.Meetings = append(view.Meetings, room)
+		options[room.MeetingID] = true
+		if room.Active > 0 && (selected == "" || room.MeetingID == selected) {
+			view.Rooms = append(view.Rooms, room)
+		}
+	}
+	for _, meeting := range recurringMeetings(meetings) {
+		if !options[meeting.Meeting.ID] {
+			view.Meetings = append(view.Meetings, stats.Room{
+				MeetingID: meeting.Meeting.ID, Topic: meeting.Meeting.Topic,
+			})
+		}
+	}
+	sort.Slice(view.Meetings, func(i, j int) bool { return view.Meetings[i].MeetingID < view.Meetings[j].MeetingID })
+	for _, meeting := range view.Meetings {
+		if meeting.MeetingID == selected {
+			view.SelectionFound = true
+		}
+	}
+	return view, nil
 }
 
 // NotifyMeetingUpdate sends an update notification to all SSE clients

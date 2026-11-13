@@ -26,7 +26,7 @@ type Repository interface {
 
 // OccupancyRecorder receives presence changes after the meeting state is persisted.
 type OccupancyRecorder interface {
-	Record(ctx context.Context, meetingID, topic string, changes []models.OccupancyChange) error
+	Record(ctx context.Context, meeting models.Meeting, changes []models.OccupancyChange) error
 }
 
 // Backend uses version 0 for an absent object. Writes must compare and swap.
@@ -49,6 +49,7 @@ type State struct {
 	LifecycleTS   int64               `json:"lifecycle_ts"`
 	OccurrenceTS  int64               `json:"occurrence_ts"`
 	MetadataTS    int64               `json:"metadata_ts"`
+	MeetingTypeTS int64               `json:"meeting_type_ts,omitempty"`
 	OperatorTS    int64               `json:"operator_ts"`
 	Participants  map[string]Presence `json:"participants,omitempty"`
 	UpdatedAt     time.Time           `json:"updated_at"`

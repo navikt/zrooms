@@ -172,10 +172,10 @@ func TestIntrospectionInvalidTokenIsUnauthorized(t *testing.T) {
 func TestAdminStatsShowsRecordedOccupancy(t *testing.T) {
 	recorder := stats.NewRecorder(stats.NewMemoryBackend(), time.UTC)
 	repo := memory.NewRepository().WithOccupancy(recorder)
-	start := time.Now().UTC().Add(-time.Minute).UnixMilli()
+	start := time.Now().UTC().Truncate(24 * time.Hour).UnixMilli()
 	_, err := repo.ApplyEvent(context.Background(), models.MeetingEvent{
 		Type: "meeting.participant_joined", EventTS: start, ParticipantID: "guest",
-		Meeting: models.Meeting{ID: "123", UUID: "instance", Topic: "<b>Room</b>"},
+		Meeting: models.Meeting{ID: "123", Type: 3, UUID: "instance", Topic: "<b>Room</b>"},
 	})
 	require.NoError(t, err)
 	handler, err := NewAdminHandler(service.NewMeetingService(repo), repo, "./templates", nil, recorder)
@@ -203,7 +203,7 @@ func TestAdminStatsShowsRecordedOccupancy(t *testing.T) {
 	body = response.Body.String()
 	require.Contains(t, body, "&lt;b&gt;Room&lt;/b&gt;")
 	require.Contains(t, body, "occ occ-1")
-	require.Equal(t, 7, strings.Count(body, `class="timeline"`))
-	require.NotContains(t, body, "meeting-id")
+	require.Equal(t, 1, strings.Count(body, `class="timeline"`))
+	require.Contains(t, body, `class="meeting-id">123</span>`)
 	require.NotContains(t, body, "guest")
 }
