@@ -9,10 +9,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Update the "last updated" timestamp when HTMX completes a swap
     document.body.addEventListener('htmx:afterSwap', function(event) {
         const now = new Date();
-        const timeString = now.toLocaleTimeString();
         const lastUpdatedElem = document.getElementById('last-updated');
         if (lastUpdatedElem) {
-            lastUpdatedElem.textContent = timeString;
+            lastUpdatedElem.textContent = now.toLocaleTimeString('en-GB', {
+                timeZone: lastUpdatedElem.dataset.timeZone,
+                hour12: false
+            });
         }
         
         // Re-apply styles after content updates

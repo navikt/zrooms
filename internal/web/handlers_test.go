@@ -3,9 +3,11 @@ package web
 import (
 	"context"
 	"errors"
+	"html/template"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,9 +18,45 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDisplayTimes(t *testing.T) {
+	oslo, err := time.LoadLocation("Europe/Oslo")
+	require.NoError(t, err)
+	tmpl, err := template.New("time").Funcs(timeFuncs(oslo)).
+		Parse(`{{formatTime .}}|{{formatDateTime .}}|{{timeZone}}`)
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		name string
+		time string
+		want string
+	}{
+		{"unset", "", "-|-|Europe/Oslo"},
+		{"winter", "2026-01-15T10:00:00Z", "11:00:00|2026-01-15 11:00:00|Europe/Oslo"},
+		{"summer", "2026-07-15T10:00:00Z", "12:00:00|2026-07-15 12:00:00|Europe/Oslo"},
+		{"year rollover", "2026-12-31T23:30:00Z", "00:30:00|2027-01-01 00:30:00|Europe/Oslo"},
+		{"before spring transition", "2026-03-29T00:59:59Z", "01:59:59|2026-03-29 01:59:59|Europe/Oslo"},
+		{"after spring transition", "2026-03-29T01:00:00Z", "03:00:00|2026-03-29 03:00:00|Europe/Oslo"},
+		{"before autumn transition", "2026-10-25T00:59:59Z", "02:59:59|2026-10-25 02:59:59|Europe/Oslo"},
+		{"after autumn transition", "2026-10-25T01:00:00Z", "02:00:00|2026-10-25 02:00:00|Europe/Oslo"},
+		{"non UTC input", "2026-07-15T10:00:00-04:00", "16:00:00|2026-07-15 16:00:00|Europe/Oslo"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var value time.Time
+			if tt.time != "" {
+				value, err = time.Parse(time.RFC3339, tt.time)
+				require.NoError(t, err)
+			}
+			var output strings.Builder
+			require.NoError(t, tmpl.Execute(&output, value))
+			require.Equal(t, tt.want, output.String())
+		})
+	}
+}
+
 func TestPublicRecurringMeetingHistory(t *testing.T) {
 	ctx := context.Background()
-	recorder := stats.NewRecorder(stats.NewMemoryBackend(), time.UTC)
+	oslo, err := time.LoadLocation("Europe/Oslo")
+	require.NoError(t, err)
+	recorder := stats.NewRecorder(stats.NewMemoryBackend(), oslo)
 	repo := memory.NewRepository().WithOccupancy(recorder)
 	svc := service.NewMeetingService(repo)
 	start := time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour).Add(10 * time.Hour)
@@ -74,6 +112,12 @@ func TestPublicRecurringMeetingHistory(t *testing.T) {
 			require.NotContains(t, body, "Unknown type")
 			require.NotContains(t, body, "owner-a")
 			require.NotContains(t, body, "owner-b")
+			if path != "/partial/stats" {
+				require.Contains(t, body, start.In(oslo).Format("15:04:05"))
+			}
+			if path == "/" {
+				require.Contains(t, body, `data-time-zone="Europe/Oslo"`)
+			}
 			if path != "/partial/meetings" {
 				require.Contains(t, body, start.Format("Mon 02 Jan"))
 				require.NotContains(t, body, start.AddDate(0, 0, -1).Format("Mon 02 Jan"))

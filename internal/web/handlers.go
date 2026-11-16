@@ -30,9 +30,8 @@ const recentDays = 7
 // NewHandler creates a new web UI handler
 func NewHandler(meetingService *service.MeetingService, templatesDir string, recorder *stats.Recorder) (*Handler, error) {
 	// Parse templates
-	tmpl, err := template.New("").Funcs(template.FuncMap{
-		"formatTime": formatTime,
-	}).Funcs(statsFuncs).ParseGlob(filepath.Join(templatesDir, "*.html"))
+	tmpl, err := template.New("").Funcs(timeFuncs(recorder.Location())).
+		Funcs(statsFuncs).ParseGlob(filepath.Join(templatesDir, "*.html"))
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse templates: %w", err)
@@ -50,11 +49,19 @@ func NewHandler(meetingService *service.MeetingService, templatesDir string, rec
 }
 
 // formatTime is a template helper function to format time
-func formatTime(t time.Time) string {
+func formatTime(t time.Time, location *time.Location) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return t.Format("15:04:05")
+	return t.In(location).Format("15:04:05")
+}
+
+func timeFuncs(location *time.Location) template.FuncMap {
+	return template.FuncMap{
+		"formatTime":     func(t time.Time) string { return formatTime(t, location) },
+		"formatDateTime": func(t time.Time) string { return formatDateTime(t, location) },
+		"timeZone":       location.String,
+	}
 }
 
 // SetupRoutes registers web UI routes on the given mux
@@ -109,8 +116,8 @@ func (h *Handler) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}{
 		Meetings:    recurringMeetings(meetings),
 		History:     history,
-		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
-		CurrentYear: time.Now().Year(),
+		LastUpdated: formatDateTime(time.Now(), h.stats.Location()),
+		CurrentYear: time.Now().In(h.stats.Location()).Year(),
 		OAuthURL:    "",
 	}
 	if zoomConfig.IsZoomConfigValid() {

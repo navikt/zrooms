@@ -38,6 +38,41 @@ func (b *testBackend) List(context.Context) ([]*State, error) {
 }
 func (b *testBackend) Check(context.Context) error { return b.err }
 
+func TestMeetingTimestampsPersistedInUTC(t *testing.T) {
+	now := time.Now().UTC()
+	start := now.Add(-time.Hour).In(time.FixedZone("CEST", 2*60*60))
+	end := now.In(time.FixedZone("EST", -5*60*60))
+	backend := &testBackend{}
+	backend.write = func(state *State, _ int64) error {
+		require.Same(t, time.UTC, state.UpdatedAt.Location())
+		require.Same(t, time.UTC, state.Meeting.StartTime.Location())
+		require.Same(t, time.UTC, state.Meeting.EndTime.Location())
+		require.True(t, start.Equal(state.Meeting.StartTime))
+		backend.state = state
+		return nil
+	}
+	store := NewStore(backend)
+	store.now = func() time.Time { return now.In(time.FixedZone("CEST", 2*60*60)) }
+	for i, kind := range []string{"meeting.created", "meeting.started", "meeting.ended"} {
+		_, err := store.ApplyEvent(context.Background(), models.MeetingEvent{
+			Type: kind, EventTS: start.UnixMilli() + int64(i),
+			Meeting: models.Meeting{ID: "123", UUID: "instance", StartTime: start, EndTime: end},
+		})
+		require.NoError(t, err)
+	}
+	require.True(t, end.Equal(backend.state.Meeting.EndTime))
+
+	// Older stored offsets are normalized when the meeting is next updated.
+	backend.state.Meeting.StartTime = start
+	backend.state.Meeting.EndTime = end
+	_, err := store.ApplyEvent(context.Background(), models.MeetingEvent{
+		Type: "meeting.updated", EventTS: now.UnixMilli(),
+		Meeting: models.Meeting{ID: "123", Topic: "Updated"},
+	})
+	require.NoError(t, err)
+	require.True(t, end.Equal(backend.state.Meeting.EndTime))
+}
+
 func TestExpiryAndStorageErrors(t *testing.T) {
 	now := time.Now().UTC()
 	backend := &testBackend{state: &State{

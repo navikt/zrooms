@@ -120,6 +120,8 @@ func (s *Store) ApplyEvent(ctx context.Context, event models.MeetingEvent) (*mod
 			changes = append(changes, models.OccupancyChange{TS: event.EventTS, Delta: after - before})
 		}
 		state.UpdatedAt = s.now().UTC()
+		state.Meeting.StartTime = state.Meeting.StartTime.UTC()
+		state.Meeting.EndTime = state.Meeting.EndTime.UTC()
 		err = s.backend.Write(ctx, event.Meeting.ID, state, version)
 		if errors.Is(err, ErrConflict) {
 			continue

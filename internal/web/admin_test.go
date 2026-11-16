@@ -33,7 +33,9 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 		require.NoError(t, err)
 	}
 	svc := service.NewMeetingService(repo)
-	admin, err := NewAdminHandler(svc, repo, "./templates", nil, stats.NewRecorder(stats.NewMemoryBackend(), time.UTC))
+	oslo, err := time.LoadLocation("Europe/Oslo")
+	require.NoError(t, err)
+	admin, err := NewAdminHandler(svc, repo, "./templates", nil, stats.NewRecorder(stats.NewMemoryBackend(), oslo))
 	require.NoError(t, err)
 	ownerCalls := 0
 	admin.newOwnerClient = func(_ context.Context, hostID string) (ownerEmailClient, error) {
@@ -56,6 +58,7 @@ func TestAdminTemplatesShowPersistedActiveMeeting(t *testing.T) {
 				admin.handleMeetingDetail(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 			}
 			require.Equal(t, http.StatusOK, recorder.Code)
+			require.Contains(t, recorder.Body.String(), meeting.StartTime.In(oslo).Format("2006-01-02 15:04:05"))
 			require.Contains(t, recorder.Body.String(), "creator@example.test")
 			require.Contains(t, recorder.Body.String(), "owner@example.test")
 			require.Contains(t, recorder.Body.String(), "host-123")

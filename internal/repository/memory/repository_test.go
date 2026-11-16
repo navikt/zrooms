@@ -57,8 +57,8 @@ func TestEventLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, models.MeetingStatusEnded, meeting.Status)
 	require.Zero(t, meeting.ParticipantCount)
-	require.Equal(t, time.UnixMilli(base), meeting.StartTime)
-	require.Equal(t, time.UnixMilli(base+50), meeting.EndTime)
+	require.Equal(t, time.UnixMilli(base).UTC(), meeting.StartTime)
+	require.Equal(t, time.UnixMilli(base+50).UTC(), meeting.EndTime)
 
 	apply("meeting.started", 100, "second", "", "")
 	apply("meeting.participant_joined", 110, "second", "guest-1", "")
@@ -208,6 +208,6 @@ func TestDelayedMetadataAndParticipantFirstOccurrence(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "second", meeting.UUID)
 	require.Equal(t, 1, meeting.ParticipantCount)
-	require.Equal(t, time.UnixMilli(base+90), meeting.StartTime)
+	require.Equal(t, time.UnixMilli(base+90).UTC(), meeting.StartTime)
 	require.Nil(t, apply("meeting.started", 110, "second", "", ""))
 }

@@ -36,14 +36,12 @@ type ownerEmailClient interface {
 // NewAdminHandler creates a new admin handler
 func NewAdminHandler(meetingService *service.MeetingService, repo repository.Repository, templatesDir string, oauth *zoom.APIManager, recorder *stats.Recorder) (*AdminHandler, error) {
 	// Parse admin templates
-	tmpl, err := template.New("").Funcs(template.FuncMap{
-		"formatTime":     formatTime,
-		"formatDateTime": formatDateTime,
-		"statusClass":    statusClass,
-		"statusText":     statusText,
-		"isActive":       func(status models.MeetingStatus) bool { return status == models.MeetingStatusStarted },
-		"slice":          slice,
-		"now":            time.Now,
+	tmpl, err := template.New("").Funcs(timeFuncs(recorder.Location())).Funcs(template.FuncMap{
+		"statusClass": statusClass,
+		"statusText":  statusText,
+		"isActive":    func(status models.MeetingStatus) bool { return status == models.MeetingStatusStarted },
+		"slice":       slice,
+		"now":         time.Now,
 	}).Funcs(statsFuncs).ParseGlob(filepath.Join(templatesDir, "admin", "*.html"))
 
 	if err != nil {
@@ -101,8 +99,8 @@ func (h *AdminHandler) handleAdminDashboard(w http.ResponseWriter, r *http.Reque
 	}{
 		Stats:             stats,
 		Meetings:          allMeetings,
-		LastUpdated:       time.Now().Format("2006-01-02 15:04:05"),
-		CurrentYear:       time.Now().Year(),
+		LastUpdated:       formatDateTime(time.Now(), h.stats.Location()),
+		CurrentYear:       time.Now().In(h.stats.Location()).Year(),
 		OwnerLookupFailed: ownerLookupFailed,
 	}
 
@@ -146,8 +144,8 @@ func (h *AdminHandler) handleMeetingsList(w http.ResponseWriter, r *http.Request
 		OwnerLookupFailed bool
 	}{
 		Meetings:          meetingsWithCounts,
-		LastUpdated:       time.Now().Format("2006-01-02 15:04:05"),
-		CurrentYear:       time.Now().Year(),
+		LastUpdated:       formatDateTime(time.Now(), h.stats.Location()),
+		CurrentYear:       time.Now().In(h.stats.Location()).Year(),
 		OwnerLookupFailed: ownerLookupFailed,
 	}
 
@@ -197,8 +195,8 @@ func (h *AdminHandler) handleMeetingDetail(w http.ResponseWriter, r *http.Reques
 		Meeting:           meeting,
 		ParticipantCount:  meeting.ParticipantCount,
 		HostID:            meeting.Host.ID, // Extract host ID for easy template access
-		LastUpdated:       time.Now().Format("2006-01-02 15:04:05"),
-		CurrentYear:       time.Now().Year(),
+		LastUpdated:       formatDateTime(time.Now(), h.stats.Location()),
+		CurrentYear:       time.Now().In(h.stats.Location()).Year(),
 		OwnerLookupFailed: ownerLookupFailed,
 	}
 
@@ -375,8 +373,8 @@ func (h *AdminHandler) handleStats(w http.ResponseWriter, r *http.Request) {
 		Previous:    month.AddDate(0, -1, 0).Format(stats.MonthLayout),
 		Next:        month.AddDate(0, 1, 0).Format(stats.MonthLayout),
 		Rooms:       rooms,
-		LastUpdated: time.Now().Format("2006-01-02 15:04:05"),
-		CurrentYear: time.Now().Year(),
+		LastUpdated: formatDateTime(time.Now(), location),
+		CurrentYear: time.Now().In(location).Year(),
 	}
 	if err := h.templates.ExecuteTemplate(w, "stats.html", viewModel); err != nil {
 		log.Printf("Error rendering stats template: %v", err)
@@ -426,11 +424,11 @@ func (h *AdminHandler) calculateStats(meetings []*models.Meeting) AdminStats {
 // Template helper functions
 
 // formatDateTime formats a time for display in admin interface
-func formatDateTime(t time.Time) string {
+func formatDateTime(t time.Time, location *time.Location) string {
 	if t.IsZero() {
 		return "-"
 	}
-	return t.Format("2006-01-02 15:04:05")
+	return t.In(location).Format("2006-01-02 15:04:05")
 }
 
 // statsFuncs are template helpers shared by the admin and public statistics views
