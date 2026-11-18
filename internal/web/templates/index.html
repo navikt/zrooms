@@ -102,7 +102,7 @@
                     {{end}}
                 </td>
                 <td class="center">{{.ParticipantCount}}</td>
-                <td>{{if not .StartedAt.IsZero}}{{formatTime .StartedAt}}{{else}}-{{end}}</td>
+                <td>{{if not .StartedAt.IsZero}}{{formatDateTime .StartedAt}}{{else}}-{{end}}</td>
             </tr>
             {{end}}
         </tbody>

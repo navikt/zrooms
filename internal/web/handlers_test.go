@@ -113,7 +113,7 @@ func TestPublicRecurringMeetingHistory(t *testing.T) {
 			require.NotContains(t, body, "owner-a")
 			require.NotContains(t, body, "owner-b")
 			if path != "/partial/stats" {
-				require.Contains(t, body, start.In(oslo).Format("15:04:05"))
+				require.Contains(t, body, "<td>"+start.In(oslo).Format("2006-01-02 15:04:05")+"</td>")
 			}
 			if path == "/" {
 				require.Contains(t, body, `data-time-zone="Europe/Oslo"`)
